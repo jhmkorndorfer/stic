@@ -6,7 +6,8 @@
 - [x] Task 1: Forking repository.
 - [x] Task 2: Copy everything to UBELIX sever.
 - [x] Task 3: Copy everything to miniHPC sever.
-
+- [x] Task 4: Install on UBELIX. Modules:
+-- test 
 
 ### Challenges
 - NA
@@ -15,7 +16,6 @@
 - NA
 
 ### Next Steps
-- Install it on UBELIX
 - Install it on miniHPC
 - Trace stic
 
