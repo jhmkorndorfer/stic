@@ -12,7 +12,7 @@ FC  = gfortran
 OMPI_FC = $(FC)
 OMPI_CXX = $(CXX)
 OMPI_CC = $(CC)
-MPCXX = mpicxx.openmpi
+MPCXX = mpicxx
 MPFC = mpif90
 MPCC = mpicc
 
@@ -22,10 +22,10 @@ LINKER = $(MPCXX)
 # 
 # OPTIMIZATION
 #
-OPTS = -O3 -march=native -DNDEBUG -fomit-frame-pointer -fstrict-aliasing -I/usr/include/tirpc
+OPTS = -O3 -march=native -I/usr/include/tirpc -Ieigen3/
 CXXFLAGS =  $(OPTS) -std=c++11
 CFLAGS =  $(OPTS) -DHAVE_F90 
-FFLAGS =  -O3 -march=native -fomit-frame-pointer
+FFLAGS =  -O3 -march=native -std=legacy
 AR = gcc-ar
 //OPENMP = -fopenmp 
 

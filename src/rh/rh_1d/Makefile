@@ -1,9 +1,12 @@
-
 GEOMETRY = ONE_D_PLANE
 
 include ../../makefiles/makefile.$(CPU).$(OS)
 
-RHINC = -I../ -I../../
+RHINC = -I../ -I../../ -I../../eigen3
+
+CFLAGS += -g3
+FFLAGS += -g3
+CXXFLAGS += -g3
 
 ## --- Define groups of object files --                -------------- ##
 
