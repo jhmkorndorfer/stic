@@ -7,7 +7,7 @@
 - [x] Task 2: Copy everything to UBELIX sever.
 - [x] Task 3: Copy everything to miniHPC sever.
 - [x] Task 4: Install on UBELIX. Modules:
--- test 
+    - test
 
 ### Challenges
 - NA
