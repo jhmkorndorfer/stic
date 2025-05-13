@@ -7,7 +7,11 @@
 ### Accomplishments
 - [x] Task 1: Fix compilation issues.
 - [x] Task 2: Finally compile stic on UBELIX.
-- [ ] Task 3: Test run stic on UBELIX.
+- [ ] Task 3: Trying to prepare input for stic.
+    - **Using ml Python/3.11.3-GCCcore-12.3.0 and virtual env namely sticenv. python3 -m venv sticenv. This is inside example folder of stic.**
+        - source sticenv/bin/activate
+        - Requirements: numpy, Matplotlib, scipy, netCDF4
+- [ ] Task 4: Test run stic on UBELIX.
 
 
 ### Challenges
