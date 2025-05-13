@@ -48,8 +48,10 @@
 #include <iostream>
 #include <cstring>
 #include <cmath>
-#include <eigen3/Eigen/Dense>
-#include <eigen3/Eigen/SVD>
+//#include <eigen3/Eigen/Dense>
+//#include <eigen3/Eigen/SVD>
+#include <Eigen/Dense>
+#include <Eigen/SVD>
 #include "clm.h"
 #include "interpol.h"
 #include "math_tools.h"

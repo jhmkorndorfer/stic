@@ -96,6 +96,21 @@ source ~/.bashrc
 These variables are just labels for the makefile, the code will be compiled in 64 bit
 mode anyway.
 
+### Important Note on Eigen Includes
+
+If you have Eigen installed system-wide or loaded on a managed system, you need to modify the include statements in the following files:
+
+1. **solveLinearCXX.cc** (located in `rh`)
+2. **clm.cc** (located in `stic/src`)
+3. **clm.h** (located in `stic/src`)
+
+Replace the following include statements:
+
+- `#include <eigen3/Eigen/Dense>` → `#include <Eigen/Dense>`
+- `#include <eigen3/Eigen/SVD>` → `#include <Eigen/SVD>`
+
+This ensures the code uses the system-installed Eigen library instead of a local one.
+
 STiC is based on a modified version the excellent RH code (Uitenbroek 2001).
 We have encapsulated RH in a module that needs to be compiled first:
 ```
