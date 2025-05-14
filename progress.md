@@ -1,5 +1,20 @@
 # Daily Progress Log
 
+## Date: 14/05/2025
+
+### Accomplishments
+- [x] Task 1: Run stic with problematic input provided by Jonas Z.
+    - It worked while we expected it to fail!!!!!!!
+
+
+### Challenges
+- STiC seems to be producing different outputs for the same input files depending on how it was compiled...
+
+### Learnings
+- NA
+
+---
+
 ## Date: 13/05/2025
 
 ### REMEMBER, CHECK PREVIOUS COMMITS FOR THE SMALL CHANGES IN MAKEFILES TAKEN FROM Jonas
@@ -7,11 +22,12 @@
 ### Accomplishments
 - [x] Task 1: Fix compilation issues.
 - [x] Task 2: Finally compile stic on UBELIX.
-- [ ] Task 3: Trying to prepare input for stic.
+- [x] Task 3: Trying to prepare input for stic.
     - **Using ml Python/3.11.3-GCCcore-12.3.0 and virtual env namely sticenv. python3 -m venv sticenv. This is inside example folder of stic.**
         - source sticenv/bin/activate
-        - Requirements: numpy, Matplotlib, scipy, netCDF4
-- [ ] Task 4: Test run stic on UBELIX.
+        - Requirements: numpy, Matplotlib, scipy, netCDF4, astropy
+- [x] Task 4: Test run stic on UBELIX.
+- [x] Task 5: Update stic README to include some of the changes required to compile it which are also described here.
 
 
 ### Challenges
@@ -25,17 +41,10 @@
    42 | #include <eigen3/Eigen/Dense>
 
 
-
 ### Learnings
 - To fix the issues above: 
     - **ml Eigen/3.4.0-GCCcore-11.3.0**
     - Modify the include statement on **solveLinearCXX.cc:3:1, clm.cc:51:10, clm.h:42:10** to avoid including from a local compilation of Eigen and use the actual module. Otherwise one needs to install Eigen Localy.
-
-
-### Next Steps
-- Test run stic on UBELIX.
-- Install it on miniHPC
-- Trace stic
 
 ---
 
@@ -50,7 +59,7 @@
     - ml FFTW.MPI/3.3.10-gompi-2023a
     - ml libtirpc/1.3.3-GCCcore-12.3.0
     - ml GCCcore/11.3.0
-    - Or a in single line... ml netCDF-C++4/4.3.1-gompi-2023a FFTW.MPI/3.3.10-gompi-2023a libtirpc/1.3.3-GCCcore-12.3.0 GCCcore/11.3.0
+    - ml Eigen/3.4.0-GCCcore-11.3.0
 - Example bash script to run STIC
 ```bash
 #!/bin/bash
@@ -92,9 +101,5 @@ mpiexec ../src/STiC.x
 
 ### Learnings
 - NA
-
-### Next Steps
-- Install it on miniHPC
-- Trace stic
 
 ---
