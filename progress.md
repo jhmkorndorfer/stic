@@ -3,7 +3,7 @@
 ## Date: 15/05/2025
 
 ### Accomplishments
-- [x] Task 1: create new branch and rsynch files with Jonas Z stic version. 
+- [x] create new branch and rsynch files with Jonas Z stic version. 
 
 
 ### Challenges
@@ -35,14 +35,14 @@
 ### REMEMBER, CHECK PREVIOUS COMMITS FOR THE SMALL CHANGES IN MAKEFILES TAKEN FROM Jonas
 
 ### Accomplishments
-- [x] Task 1: Fix compilation issues.
-- [x] Task 2: Finally compile stic on UBELIX.
-- [x] Task 3: Trying to prepare input for stic.
+- [x] Fix compilation issues.
+- [x] Finally compile stic on UBELIX.
+- [x] Trying to prepare input for stic.
     - **Using ml Python/3.11.3-GCCcore-12.3.0 and virtual env namely sticenv. python3 -m venv sticenv. This is inside example folder of stic.**
         - source sticenv/bin/activate
         - Requirements: numpy, Matplotlib, scipy, netCDF4, astropy
-- [x] Task 4: Test run stic on UBELIX.
-- [x] Task 5: Update stic README to include some of the changes required to compile it which are also described here.
+- [x] Test run stic on UBELIX.
+- [x] Update stic README to include some of the changes required to compile it which are also described here.
 
 
 ### Challenges
@@ -66,10 +66,10 @@
 ## Date: 12/05/2025
 
 ### Accomplishments
-- [x] Task 1: Forking repository.
-- [x] Task 2: Copy everything to UBELIX sever.
-- [x] Task 3: Copy everything to miniHPC sever.
-- [x] Task 4: Install on UBELIX. Modules:
+- [x] Forking repository.
+- [x] Copy everything to UBELIX sever.
+- [x] Copy everything to miniHPC sever.
+- [x] Install on UBELIX. Modules:
     - ml netCDF-C++4/4.3.1-gompi-2023a
     - ml FFTW.MPI/3.3.10-gompi-2023a
     - ml libtirpc/1.3.3-GCCcore-12.3.0
