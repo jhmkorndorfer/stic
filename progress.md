@@ -1,5 +1,20 @@
 # Daily Progress Log
 
+## Date: 15/05/2025
+
+### Accomplishments
+- [x] Task 1: create new branch and rsynch files with Jonas Z stic version. 
+
+
+### Challenges
+- NA
+
+### Learnings
+- Interestinly JZ version of STiC is VERY different from the newest version available on the STiC reposity. We will have to investigate this further another day.
+
+---
+
+
 ## Date: 14/05/2025
 
 ### Accomplishments
