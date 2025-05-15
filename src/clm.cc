@@ -48,8 +48,6 @@
 #include <iostream>
 #include <cstring>
 #include <cmath>
-//#include <eigen3/Eigen/Dense>
-//#include <eigen3/Eigen/SVD>
 #include <Eigen/Dense>
 #include <Eigen/SVD>
 #include "clm.h"
@@ -366,7 +364,7 @@ clm::clm(int ind, int inpar){
      can be changed externally 
      --- */
   
-  xtol = 1.e-5;       // Controls the minimum relative change to Chi2
+  xtol = 1.e-2;       // Controls the minimum relative change to Chi2
   chi2_thres = 1.0;   // Exit inversion if Chi2 is lower than this
   svd_thres = 1.e-13; // Cut-off "relative" thres. for small singular values
   lmax = 1.0e5;       // Maximum lambda value

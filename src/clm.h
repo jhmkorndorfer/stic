@@ -39,8 +39,8 @@
 */
 #include <vector>
 #include <sys/time.h>
-//#include <eigen3/Eigen/Dense>
 #include <Eigen/Dense>
+
 
 /* --- 
    Struct to control each of the parameters 

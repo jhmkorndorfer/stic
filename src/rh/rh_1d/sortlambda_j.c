@@ -535,25 +535,16 @@ void SortLambda_j(int mynw, double *mylambda)
 	}
       } else {
 	alpha_original = continuum->alpha;
-	double* alpha_new = (double*)calloc(continuum->Nlambda,sizeof(double));
-	splineHermite(Nlambda_original, continuum->lambda, alpha_original, continuum->Nlambda, spectrum.lambda + continuum->Nblue, alpha_new);
-	free((void*)continuum->alpha);
-	continuum->alpha = (double*)malloc(continuum->Nlambda * sizeof(double));
-	memcpy(continuum->alpha, alpha_new,continuum->Nlambda*sizeof(double));
-	free(alpha_new);
-	/*
-	  splineCoef(Nlambda_original, continuum->lambda, alpha_original);
+	splineCoef(Nlambda_original, continuum->lambda, alpha_original);
 	
 	continuum->alpha =
 	  (double *) malloc(continuum->Nlambda * sizeof(double));
 	splineEval(continuum->Nlambda, spectrum.lambda + continuum->Nblue,
 		   continuum->alpha, hunt=TRUE);
 	
-	*/
-	
-	
 	free(continuum->lambda);
 	continuum->lambda = spectrum.lambda + continuum->Nblue;
+	free(alpha_original);
       }
     }
     /* --- Then go through the bound-bound transitions -- ----------- */

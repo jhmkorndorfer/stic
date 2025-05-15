@@ -802,7 +802,7 @@ void comm_slave_unpack_data(iput_t &input, int &action, mat<double> &obs, mat<do
 }
 
 
-void comm_master_unpack_data(int &iproc, iput_t input, mat<double> &obs, mat<double> &pars, mat<double> &chi2, unsigned long &irec, mat<double> &dsyn, int cgrad, mdepthall_t &m){
+int comm_master_unpack_data(int &iproc, iput_t input, mat<double> &obs, mat<double> &pars, mat<double> &chi2, unsigned long &irec, mat<double> &dsyn, int cgrad, mdepthall_t &m){
   
   // char buffer[input.buffer_size];
   char *buffer;// = new char [input.buffer_size1];
@@ -812,6 +812,7 @@ void comm_master_unpack_data(int &iproc, iput_t input, mat<double> &obs, mat<dou
   int status = 0;
   MPI_Status ierr = {}, stat = {};
   unsigned long len;
+  int pix, xx, yy, pixout;
 
   // Get buffer from the slave
   //status = MPI_Recv(buffer, input.buffer_size1, MPI_PACKED, MPI_ANY_SOURCE,
@@ -851,9 +852,10 @@ void comm_master_unpack_data(int &iproc, iput_t input, mat<double> &obs, mat<dou
       {
 	// Unpack pixel data
 	//for(int pp = 0; pp<nPacked;pp++){
-	int pix, xx, yy;
 	status = MPI_Unpack(&buffer[0], input.buffer_size1, &pos, &pix, 1,
 			    MPI_INT, MPI_COMM_WORLD );
+	pixout = pix;
+	
 	comm_get_xy(pix, input.nx, yy, xx);
 	
 	status = MPI_Unpack(&buffer[0], input.buffer_size1, &pos, &chi2(yy,xx),
@@ -885,9 +887,9 @@ void comm_master_unpack_data(int &iproc, iput_t input, mat<double> &obs, mat<dou
     case 2:
       {
 	
-	int pix, xx, yy;
 	status = MPI_Unpack(&buffer[0], input.buffer_size1, &pos, &pix, 1,
 			    MPI_INT, MPI_COMM_WORLD );
+	pixout = pix;
 	comm_get_xy(pix, input.nx, yy, xx);
 	
 	len = input.nw_tot * input.ns * nPacked;
@@ -902,13 +904,13 @@ void comm_master_unpack_data(int &iproc, iput_t input, mat<double> &obs, mat<dou
     case 3:
       {
 	// for(int pp = 0; pp<nPacked;pp++){
-	int pix, xx, yy, nx;
+	int nx;
 	nx = (int)obs.size(1);
 	
 	status = MPI_Unpack(buffer, input.buffer_size1, &pos, &pix, 1, MPI_INT,
 			    MPI_COMM_WORLD );
 	comm_get_xy(pix, nx, yy, xx);
-	
+	pixout = pix;
 	len = input.nw_tot * input.ns * nPacked;
 	status = MPI_Unpack(buffer, input.buffer_size1, &pos, &obs(yy,xx,0,0), len,
 			    MPI_DOUBLE, MPI_COMM_WORLD );
@@ -939,11 +941,12 @@ void comm_master_unpack_data(int &iproc, iput_t input, mat<double> &obs, mat<dou
       }
     case 4:
       {
-	int pix, xx, yy, nx;
+	int nx;
 	nx = (int)obs.size(1);
 	status = MPI_Unpack(buffer, input.buffer_size1, &pos, &pix, 1, MPI_INT,
 			    MPI_COMM_WORLD );
 	comm_get_xy(pix, nx, yy, xx);
+	pixout = pix;
 	
 	len = input.nw_tot * input.ns * nPacked;
 	status = MPI_Unpack(buffer, input.buffer_size1, &pos, &obs(yy,xx,0,0), len,
@@ -964,6 +967,7 @@ void comm_master_unpack_data(int &iproc, iput_t input, mat<double> &obs, mat<dou
 
   delete [] buffer;
   
+  return pixout;
 }
 
 
