@@ -1,5 +1,19 @@
 # Daily Progress Log
 
+## Date: 20/05/2025
+
+### Accomplishments
+- [] Generate call graph
+- [] Run it with more MPI ranks
+
+### Challenges
+- 
+
+### Learnings
+- 
+
+---
+
 ## Date: 15/05/2025
 
 ### Accomplishments
