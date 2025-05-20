@@ -3,7 +3,8 @@
 ## Date: 20/05/2025
 
 ### Accomplishments
-- [] Generate call graph
+- [x] Generate call graph at least starting from main function to have an idea of code paths...
+![Call graph starting at main](main-callgraph.png)
 - [] Run it with more MPI ranks
 
 ### Challenges
