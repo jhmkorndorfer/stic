@@ -1,11 +1,27 @@
 # Daily Progress Log
 
+## Date: 26/05/2025
+
+### Accomplishments
+- [x] Install stic on SML
+- [x] Run stic on SML
+- [] Install Score-P on SML for performance measurements.
+    ```
+    cd $SML_HOME
+    ./configure --prefix=$SML_HOME/local/scorep CC=mpicc CXX=mpicxx --with-mpi=openmpi --without-shmem
+    ```
+
+### Challenges
+- 
+
+### Learnings
+- 
+
 ## Date: 20/05/2025
 
 ### Accomplishments
 - [x] Generate call graph at least starting from main function to have an idea of code paths...
 ![Call graph starting at main](main-callgraph.png)
-- [] Run it with more MPI ranks
 
 ### Challenges
 - 
