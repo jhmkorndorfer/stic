@@ -1,14 +1,73 @@
 # Daily Progress Log
 
+## Date: 27/05/2025
+
+### Accomplishments
+- [x] Install Score-P on SML for performance measurements.
+    - It seems we will have to install libutils first as scorep requires it...
+    ```
+    wget https://ftp.gnu.org/gnu/binutils/binutils-2.42.tar.xz
+    tar -xf binutils-2.42.tar.xz
+    cd binutils-2.42
+    mkdir build && cd build
+    CFLAGS="-fPIC -O2" CXXFLAGS="-fPIC -O2" ../configure --prefix=$SML_HOME/local/binutils --disable-werror --disable-nls --enable-shared
+    make -j$(nproc) MAKEINFO=true
+    make MAKEINFO=true install
+
+    ```
+    - Now for Score-P itself:
+    ```
+    cd $SML_HOME
+    wget https://perftools.pages.jsc.fz-juelich.de/cicd/scorep/tags/scorep-9.0/scorep-9.0.tar.gz
+    ../configure --prefix=$SML_HOME/local/scorep --with-libgotcha=download --with-mpi=openmpi --with-libbfd=$SML_HOME/local/binutils --with-libiberty=$SML_HOME/local/binutils --without-shmem CC=mpicc CXX=mpicxx CPPFLAGS="-I$SML_HOME/local/binutils/include" LDFLAGS="-L$SML_HOME/local/binutils/lib"
+    make -j 16
+    make install
+    echo 'export PATH="$SML_HOME/local/scorep/bin:$PATH"' >> ~/.bashrc
+    ```
+- [] Compile STiC with Score-P.
+
+### Challenges
+- Score-P requires some libs that seem hard to install locally... Progress above
+
+### Learnings
+- 
+
 ## Date: 26/05/2025
 
 ### Accomplishments
 - [x] Install stic on SML
 - [x] Run stic on SML
 - [] Install Score-P on SML for performance measurements.
+    - It seems we will have to install libutils first as scorep requires it...
+    ```
+    wget https://ftp.gnu.org/gnu/binutils/binutils-2.42.tar.xz
+    tar -xf binutils-2.42.tar.xz
+    cd binutils-2.42
+    mkdir build && cd build
+    ../configure --prefix=$SML_HOME/local/binutils --disable-werror --disable-nls CFLAGS="-g -O2 -fPIC"
+    make -j$(nproc) MAKEINFO=true
+    make install
+
+    ```
+    - Now for Score-P itself:
     ```
     cd $SML_HOME
-    ./configure --prefix=$SML_HOME/local/scorep CC=mpicc CXX=mpicxx --with-mpi=openmpi --without-shmem
+    wget https://perftools.pages.jsc.fz-juelich.de/cicd/scorep/tags/scorep-9.0/scorep-9.0.tar.gz
+    ./configure --prefix=$SML_HOME/local/scorep CC=mpicc CXX=mpicxx --with-mpi=openmpi --without-shmem \
+            --with-libbfd=$BINUTILS_ROOT \
+            --with-libiberty=$BINUTILS_ROOT \
+            --with-bfd-include=$BINUTILS_ROOT/include \
+            --with-bfd-lib=$BINUTILS_ROOT/lib 
+
+
+    ./configure --prefix=$SML_HOME/local/scorep \
+  --without-shmem CC=mpicc CXX=mpicxx \
+  --with-mpi=openmpi \
+  --with-libbfd=$SML_HOME/local/binutils \
+  --with-libiberty=$SML_HOME/local/binutils \
+  CPPFLAGS="-I$SML_HOME/local/binutils/include" \
+  LDFLAGS="-L$SML_HOME/local/binutils/lib"
+
     ```
 
 ### Challenges
