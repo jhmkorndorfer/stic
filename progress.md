@@ -24,7 +24,15 @@
     make install
     echo 'export PATH="$SML_HOME/local/scorep/bin:$PATH"' >> ~/.bashrc
     ```
-- [] Compile STiC with Score-P.
+- [x] Compile STiC with Score-P.
+    - Just copile as the standard instructions. 
+    - **Makefiles at /sml/jonashmk/stic-scorep/src/ are already modified to compile with Score-P**
+
+- [] Run STiC with Score-P and collect profile and later traces.
+    ```
+    
+
+    ```
 
 ### Challenges
 - Score-P requires some libs that seem hard to install locally... Progress above
