@@ -1,5 +1,18 @@
 # Daily Progress Log
 
+## Date: 28/05/2025
+
+### Accomplishments
+- [x] Run STiC with Score-P and collect profile and later traces.
+- [] Prepare a filter for Score-P to avoid gigantic traces...
+   
+
+### Challenges
+- 
+
+### Learnings
+- 
+
 ## Date: 27/05/2025
 
 ### Accomplishments
