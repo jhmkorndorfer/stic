@@ -44,7 +44,7 @@ export SCOREP_ENABLE_TRACING=true
 
 ### Accomplishments
 - [x] Install Score-P on SML for performance measurements.
-    - It seems we will have to install libutils first as scorep requires it...
+    - It seems we will have to install **libutils** first as scorep requires it...
     ```
     wget https://ftp.gnu.org/gnu/binutils/binutils-2.42.tar.xz
     tar -xf binutils-2.42.tar.xz
@@ -55,7 +55,7 @@ export SCOREP_ENABLE_TRACING=true
     make MAKEINFO=true install
 
     ```
-    - Now for Score-P itself:
+    - Now for **Score-P** itself:
     ```
     cd $SML_HOME
     wget https://perftools.pages.jsc.fz-juelich.de/cicd/scorep/tags/scorep-9.0/scorep-9.0.tar.gz
@@ -65,14 +65,62 @@ export SCOREP_ENABLE_TRACING=true
     echo 'export PATH="$SML_HOME/local/scorep/bin:$PATH"' >> ~/.bashrc
     ```
 - [x] Compile STiC with Score-P.
-    - Just copile as the standard instructions. 
+    - Just compile as the standard instructions. 
     - **Makefiles at /sml/jonashmk/stic-scorep/src/ are already modified to compile with Score-P**
+        - Here is the modified Makefile
+            ```
+# Paths
+GSLPATH        = /usr
+INCLUDE_DIRS   = -I/usr/include -I./ -Irh/ -Irh/rh_1d -I/usr/include/tirpc -Ieigen3/
+LIB_DIRS       = -L/usr/lib/x86_64-linux-gnu -L/usr/lib/ -L./ -Lrh/rh_1d/ -L/usr
+LIBS           = -lnetcdf_c++4 -lnetcdf -lstdc++ -ltirpc -lrhf1d -lfftw3 -ltirpc -lgfortran -lm -lpthread
+
+# Compiler & flags
+CC             = scorep mpicxx
+FC             = scorep gfortran
+CXXFLAGS       = -O3 -march=native -g3 -std=c++11
+FFLAGS         = -O3 -march=native -g3 -std=legacy
+
+# Score-P config flags
+SCOREP_FLAGS   = --thread=pthread --mpp=mpi --io=posix --nocuda --noopencl --noopenacc --memory --nokokkos --nohip
+
+# Sources
+FFILES         = eos_math_special.f eos_eqns.f eos.f
+CXXFILES       = input.cc clm.cc cop.cc witt.cc ceos.cc comm.cc depthmodel.cc spectral.cc fpigen.cc \
+                specrebin.cc specprefilter.cc fpi.cc atmosphere.cc clte.cc crh.cc io.cc slave.cc \
+                master_sparse.cc main_sparse.cc
+
+# Objects
+FOBJS          = $(FFILES:.f=.o)
+CXXOBJS        = $(CXXFILES:.cc=.o)
+OBJS           = $(FOBJS) $(CXXOBJS)
+
+# Default target
+all: stic
+
+%.o: %.f
+        $(FC) $(FFLAGS) -c $< -o $@
+
+%.o: %.cc
+        $(CC) $(CXXFLAGS) $(INCLUDE_DIRS) -c $< -o $@
+
+stic: $(OBJS)
+        mpicxx -o $@ $(OBJS) $(INCLUDE_DIRS) $(LIB_DIRS) $(LIBS) \
+            `scorep-config $(SCOREP_FLAGS) --constructor | sed 's#[^ ]*scorep_constructor.o##g'` \
+            `scorep-config $(SCOREP_FLAGS) --ldflags` \
+            -Wl,-start-group \
+            `scorep-config $(SCOREP_FLAGS) --event-libs` \
+            `scorep-config $(SCOREP_FLAGS) --mgmt-libs` \
+            -Wl,-end-group
+
+clean:
+        rm -f *.o *.mod stic
+            ```
 
 - [] Run STiC with Score-P and collect profile and later traces.
     ```
     
 
-    ```
 
 ### Challenges
 - Score-P requires some libs that seem hard to install locally... Progress above
