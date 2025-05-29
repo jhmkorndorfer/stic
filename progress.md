@@ -1,9 +1,36 @@
 # Daily Progress Log
 
+## Date: 29/05/2025
+
+### Accomplishments
+- [x] Prepare a filter for Score-P to avoid gigantic traces... Finally I have a working one but still needs a lot of work...
+    - First Vampir timeline screenshot of STiC. A few notes:
+        - It seems the Master does not do any work.
+            - Thus, one should use **N+1 number of ranks** where N is the maximum for ranks for a given input. That is because the master does not do work.
+        - Different ranks seems to get 1 piece of the input that the master is distributing. Problem is it seems each piece generates a different amount of work which causes a not of load imbalance.
+        - It also seems that **each Rank creates 2 Pthreads**. However the threads seem to do nothing...
+        - Only function rhf1d seems to take over the whole execution. **REMEMEBER THIS IS JUST THE FIRST TRACE, FILTER MIGHT STILL BE BAD!!**
+![First ever trace of STiC. This one DOES NOT show the threads of each rank](trace-screenshots/first-trace-hide-threads.png) 
+![First ever trace of STiC. This one shows the threads of each rank](trace-screenshots/first-trace-show-threads.png)          
+   
+
+### Challenges
+- 
+
+### Learnings
+- 
+
+
 ## Date: 28/05/2025
 
 ### Accomplishments
 - [x] Run STiC with Score-P and collect profile and later traces.
+- [x] Storing exports to enable stic tracing
+```
+export SCOREP_FILTERING_FILE=/sml/jonashmk/stic-scorep/example_crisp/filter-scorep.filt
+export SCOREP_TOTAL_MEMORY=8G
+export SCOREP_ENABLE_TRACING=true
+```
 - [] Prepare a filter for Score-P to avoid gigantic traces...
    
 
