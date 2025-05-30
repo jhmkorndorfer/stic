@@ -1,5 +1,18 @@
 # Daily Progress Log
 
+## Date: 30/05/2025
+
+### Accomplishments
+- [x] Improved filter for STiC
+![First improved filter](trace-screenshots/scorep-filter-exclude-all-include-low-maxbuf.txt) 
+   
+
+### Challenges
+- 
+
+### Learnings
+- 
+
 ## Date: 29/05/2025
 
 ### Accomplishments
