@@ -94,7 +94,7 @@ export SCOREP_ENABLE_TRACING=true
     - Just compile as the standard instructions. 
     - **Makefiles at /sml/jonashmk/stic-scorep/src/ are already modified to compile with Score-P**
         - Here is the modified Makefile
-            ```
+```
 # Paths
 GSLPATH        = /usr
 INCLUDE_DIRS   = -I/usr/include -I./ -Irh/ -Irh/rh_1d -I/usr/include/tirpc -Ieigen3/
@@ -141,11 +141,9 @@ stic: $(OBJS)
 
 clean:
         rm -f *.o *.mod stic
-            ```
+```
 
 - [] Run STiC with Score-P and collect profile and later traces.
-    ```
-    
 
 
 ### Challenges
