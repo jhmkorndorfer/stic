@@ -1,11 +1,29 @@
 # Daily Progress Log
 
+## Date: 02/06/2025
+
+### Accomplishments
+- [x] New version of STiC filter this time adding all MPI calls.
+![First improved filter](trace-screenshots/scorep-filter-exclude-all-include-low-maxbuf-include-MPI.txt) 
+```txt
+// filepath: trace-screenshots/scorep-filter-exclude-all-include-low-maxbuf-include-MPI.txt
+```
+
+### Challenges
+- 
+
+### Learnings
+- 
+
+
 ## Date: 30/05/2025
 
 ### Accomplishments
 - [x] Improved filter for STiC
 ![First improved filter](trace-screenshots/scorep-filter-exclude-all-include-low-maxbuf.txt) 
-   
+```txt
+// filepath: trace-screenshots/scorep-filter-exclude-all-include-low-maxbuf.txt
+```  
 
 ### Challenges
 - 
