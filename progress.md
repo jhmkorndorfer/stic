@@ -4,10 +4,8 @@
 
 ### Accomplishments
 - [x] New version of STiC filter this time adding all MPI calls.
-![First improved filter](trace-screenshots/scorep-filter-exclude-all-include-low-maxbuf-include-MPI.txt) 
-```txt
-// filepath: trace-screenshots/scorep-filter-exclude-all-include-low-maxbuf-include-MPI.txt
-```
+[First improved filter](trace-screenshots/scorep-filter-exclude-all-include-low-maxbuf-include-MPI.txt) 
+
 
 ### Challenges
 - 
@@ -20,10 +18,7 @@
 
 ### Accomplishments
 - [x] Improved filter for STiC
-![First improved filter](trace-screenshots/scorep-filter-exclude-all-include-low-maxbuf.txt) 
-```txt
-// filepath: trace-screenshots/scorep-filter-exclude-all-include-low-maxbuf.txt
-```  
+[First improved filter](trace-screenshots/scorep-filter-exclude-all-include-low-maxbuf.txt) 
 
 ### Challenges
 - 
