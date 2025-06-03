@@ -1,5 +1,70 @@
 # Daily Progress Log
 
+## Date: 03/06/2025
+
+### Accomplishments
+- [x] Recompile STiC with modified makefile to improve traces.
+    - New Makefile"
+```
+# Paths
+GSLPATH        = /usr
+INCLUDE_DIRS   = -I/usr/include -I./ -Irh/ -Irh/rh_1d -I/usr/include/tirpc -Ieigen3/
+LIB_DIRS       = -L/usr/lib/x86_64-linux-gnu -L/usr/lib/ -L./ -Lrh/rh_1d/ -L/usr
+LIBS           = -lnetcdf_c++4 -lnetcdf -lstdc++ -ltirpc -lrhf1d -lfftw3 -ltirpc -lgfortran -lm -lpthread
+
+# Compiler & flags
+CC             = scorep mpicxx
+FC             = scorep gfortran
+CXXFLAGS       = -O3 -march=native -g3 -std=c++11
+FFLAGS         = -O3 -march=native -g3 -std=legacy
+
+# Score-P config flags
+SCOREP_FLAGS   = --thread=pthread --mpp=mpi --io=posix --nocuda --noopencl --noopenacc --memory --nokokkos --nohip
+
+# Sources
+FFILES         = eos_math_special.f eos_eqns.f eos.f
+CXXFILES       = input.cc clm.cc cop.cc witt.cc ceos.cc comm.cc depthmodel.cc spectral.cc fpigen.cc \
+                specrebin.cc specprefilter.cc fpi.cc atmosphere.cc clte.cc crh.cc io.cc slave.cc \
+                master_sparse.cc main_sparse.cc
+
+# Objects
+FOBJS          = $(FFILES:.f=.o)
+CXXOBJS        = $(CXXFILES:.cc=.o)
+OBJS           = $(FOBJS) $(CXXOBJS)
+
+# Default target
+all: stic
+
+%.o: %.f
+        $(FC) $(FFLAGS) -c $< -o $@
+
+%.o: %.cc
+        $(CC) $(CXXFLAGS) $(INCLUDE_DIRS) -c $< -o $@
+
+#stic: $(OBJS)
+#       mpicxx -o $@ $(OBJS) $(INCLUDE_DIRS) $(LIB_DIRS) $(LIBS) \
+#           `scorep-config $(SCOREP_FLAGS) --ldflags` \
+#           -Wl,-start-group \
+#           `scorep-config $(SCOREP_FLAGS) --event-libs` \
+#           `scorep-config $(SCOREP_FLAGS) --mgmt-libs` \
+#           -Wl,-end-group
+
+stic: $(OBJS)
+        $(CC) -o $@ $(OBJS) $(INCLUDE_DIRS) $(LIB_DIRS) $(LIBS)
+
+clean:
+        rm -f *.o *.mod stic
+```
+- [x] Running STIC with new scorep.
+- [x] Adding scripts folder to work on new filters for stic.
+
+### Challenges
+- 
+
+### Learnings
+- 
+
+
 ## Date: 02/06/2025
 
 ### Accomplishments
