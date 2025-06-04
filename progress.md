@@ -1,5 +1,24 @@
 # Daily Progress Log
 
+## Date: 04/06/2025
+
+### Accomplishments
+- [x] Investigate stic profile:
+    - Two key functions:
+        - do_master_sparse(int, int, char*)
+        - do_slave(int, int, char*)
+    - The functions above call many other small functions but they are basically the core of the program. Need further tracing for more details.
+
+
+
+
+### Challenges
+- 
+
+### Learnings
+- 
+
+
 ## Date: 03/06/2025
 
 ### Accomplishments
