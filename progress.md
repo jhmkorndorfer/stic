@@ -1,5 +1,25 @@
 # Daily Progress Log
 
+## Date: 05/06/2025
+
+### Accomplishments
+- [x] Continue investigating profile using CUBE
+    - First, general view of STiC profile below:
+    ![Overview stic profile](trace-screenshots/profile-upper-view)
+    - Detailed Master process view. **Master basically only communicates...**
+    ![Overview master profile](trace-screenshots/profile-master-detail.png)
+    - Detailed Worker process view 1 level below simply **do_slave**. Here we can see that basically there is **only really one function called fitModel2(mdepth&, int, double*, int, double*, mat&) that takes any execution time**
+    ![On level below do_slave profile](trace-screenshots/profile-slave-detail-1.png)
+    - Detailed Worker process view 1 level below **fitModel2**. Here we can see that **the dominating next function is fitdata(int (*)(int, int, double*, double*, double*, double\*\*, void*, reg_t&, bool), double*, void*, int, reg_t&)**
+    ![One level below fitModel2 profile](trace-screenshots/profile-slave-detail-2.png)
+    
+### Challenges
+- 
+
+### Learnings
+- 
+
+
 ## Date: 04/06/2025
 
 ### Accomplishments
@@ -8,8 +28,6 @@
         - do_master_sparse(int, int, char*)
         - do_slave(int, int, char*)
     - The functions above call many other small functions but they are basically the core of the program. Need further tracing for more details.
-
-
 
 
 ### Challenges
