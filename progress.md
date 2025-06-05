@@ -8,11 +8,11 @@
     ![Overview stic profile](trace-screenshots/profile-upper-view)
     - Detailed Master process view. **Master basically only communicates...**
     ![Overview master profile](trace-screenshots/profile-master-detail.png)
-    - Detailed Worker process view 1 level below simply **do_slave**. Here we can see that basically there is **only really one function called fitModel2(mdepth&, int, double*, int, double*, mat&) that takes any execution time**
+    - Detailed Worker process view 1 level below simply **do_slave**. Here we can see that basically there is **only really one function called fitModel2(mdepth\&, int, double\*, int, double\*, mat&) that takes any execution time**
     ![On level below do_slave profile](trace-screenshots/profile-slave-detail-1.png)
     - Detailed Worker process view 1 level below **fitModel2**. Here we can see that **the dominating next function is fitdata(int (*)(int, int, double*, double*, double*, double\*\*, void*, reg_t&, bool), double*, void*, int, reg_t&)**
     ![One level below fitModel2 profile](trace-screenshots/profile-slave-detail-2.png)
-    - Finally going much deeper in the profile we see that **the dominating functions seem to be synth(mdepth&, double*, int, cprof_solver, bool) and responseFunction(int, mdepth&, double*, int, double*, int, double*) which both call rhf1d.**
+    - Finally going much deeper in the profile we see that **the dominating functions seem to be synth(mdepth\&, double\*, int, cprof_solver, bool) and responseFunction(int, mdepth&, double\*, int, double\*, int, double\*) which both call rhf1d.**
     ![Super deep profile](trace-screenshots/profile-slave-detail-3.png)
 
 
