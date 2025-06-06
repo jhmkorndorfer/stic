@@ -1,5 +1,17 @@
 # Daily Progress Log
 
+## Date: 06/06/2025
+
+### Accomplishments
+- [] Evaluate STiC traces with local installation of Vampir (problems below...)
+
+
+### Challenges
+- Still trying to check the new traces but Vampir still bugged.
+
+### Learnings
+- 
+
 ## Date: 05/06/2025
 
 ### Accomplishments
