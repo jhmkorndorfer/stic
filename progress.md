@@ -1,14 +1,24 @@
 # Daily Progress Log
 
+## Date: 11/06/2025
+
+### Accomplishments
+- [] Install Score-P on Ubelix and trace STiC there.
+
+### Challenges
+- Still trying to check the new traces but Vampir still bugged.
+
+### Learnings
+- 
+
 ## Date: 10/06/2025
 
 ### Accomplishments
 - [] Install Score-P on Ubelix and trace STiC there.
-- [] Evaluate STiC traces with local installation of Vampir (problems below...)
 
 
 ### Challenges
-- Still trying to check the new traces but Vampir still bugged.
+- 
 
 ### Learnings
 - 
