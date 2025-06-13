@@ -3,7 +3,7 @@
 ## Date: 13/06/2025
 
 ### Accomplishments
-- [] Finally install **Score-P onm UBELIX**
+- [x] Finally install **Score-P onm UBELIX**
 ```
 wget https://perftools.pages.jsc.fz-juelich.de/cicd/scorep/tags/scorep-9.0/scorep-9.0.tar.gz
 tar -xvf scorep-9.0.tar.gz
@@ -18,10 +18,41 @@ ml CMake/3.24.3-GCCcore-11.3.0
 ./configure --prefix=$HOME/local/scorep CC=mpicc CXX=mpicxx --with-mpi=openmpi --without-shmem --with-libgotcha=download
 
 
-
+make install
 echo 'export PATH="$HOME/local/scorep/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
 
 ```
+
+- [x] Compile **STiC with Score-P on UBELIX**
+    - Files have already been modified to use eigen from module
+    ```
+    module load netCDF-C++4/4.3.1-gompi-2023a FFTW.MPI/3.3.10-gompi-2023a libtirpc/1.3.3-GCCcore-12.3.0
+    module load GCCcore/11.3.0
+    ml Eigen/3.4.0-GCCcore-11.3.0
+    ml CMake/3.24.3-GCCcore-11.3.0
+
+    cd /storage/homefs/jm25l251/apps-unibe/stic-scorep/src/rh
+
+    export OS=Linux
+    export CPU=x86_64
+    export OMPI_CC=gcc
+    export OMPI_CXX=g++
+    export OMPI_FC=gfortran
+
+    make clean
+    make
+
+    cd rh_1d/
+    make clean
+    make
+
+    cd ../../
+    make clean
+    make
+
+    ```
+- [] ONGOING install OTF2 converter to CTF to be able to use TRACE-COMPAS (while vampir is not working...)
 
 
 ### Challenges
