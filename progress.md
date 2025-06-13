@@ -1,5 +1,35 @@
 # Daily Progress Log
 
+## Date: 13/06/2025
+
+### Accomplishments
+- [] Finally install **Score-P onm UBELIX**
+```
+wget https://perftools.pages.jsc.fz-juelich.de/cicd/scorep/tags/scorep-9.0/scorep-9.0.tar.gz
+tar -xvf scorep-9.0.tar.gz
+
+cd scorep-9.0
+
+module load netCDF-C++4/4.3.1-gompi-2023a FFTW.MPI/3.3.10-gompi-2023a libtirpc/1.3.3-GCCcore-12.3.0
+module load GCCcore/11.3.0
+ml Eigen/3.4.0-GCCcore-11.3.0
+ml CMake/3.24.3-GCCcore-11.3.0
+
+./configure --prefix=$HOME/local/scorep CC=mpicc CXX=mpicxx --with-mpi=openmpi --without-shmem --with-libgotcha=download
+
+
+
+echo 'export PATH="$HOME/local/scorep/bin:$PATH"' >> ~/.bashrc
+
+```
+
+
+### Challenges
+- 
+
+### Learnings
+- 
+
 ## Date: 12/06/2025
 
 ### Accomplishments
