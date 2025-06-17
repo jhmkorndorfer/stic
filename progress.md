@@ -1,5 +1,19 @@
 # Daily Progress Log
 
+## Date: 17/06/2025
+
+### Accomplishments
+- [x] Collect STiC traces from UBELIX
+- [] ONGOING install OTF2 converter to CTF to be able to use TRACE-COMPAS (while vampir is not working...)
+
+
+### Challenges
+- 
+
+### Learnings
+- 
+
+
 ## Date: 13/06/2025
 
 ### Accomplishments
