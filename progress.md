@@ -1,5 +1,19 @@
 # Daily Progress Log
 
+## Date: 19/06/2025
+
+### Accomplishments
+- [x] Install OTF2 converter to CTF to be able to use TRACE-COMPAS (while vampir is not working...)
+    - This is too slow, would only work for way too small traces...
+
+
+### Challenges
+- 
+
+### Learnings
+- 
+
+
 ## Date: 17/06/2025
 
 ### Accomplishments
