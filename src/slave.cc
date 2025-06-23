@@ -8,6 +8,7 @@
   AUTHORS(s): Jaime de la Cruz Rodriguez, ISP-SU 2016
 
  */
+#include <cstdio>
 #include <iostream>
 #include <string>
 #include <netcdf>
@@ -333,6 +334,9 @@ void do_slave(int myrank, int nprocs, char hostname[]){
 	// --- Derivatives ---- //
 	
 	int kkk = 0;
+// print the value of it.ndep
+printf("it.ndep = %d\n", it.ndep);
+
 	for(int kk = 0;kk<8; kk++){
 	  if(input.getResponse[kk] > 0){
 	    atmos->responseFunctionFull(it, ndata, &dobs(pixel,kkk,0,0), &obs(pixel,0,0), kk);
