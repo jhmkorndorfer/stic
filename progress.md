@@ -1,5 +1,17 @@
 # Daily Progress Log
 
+## Date: 23/06/2025
+
+### Accomplishments
+- [x] Create compile scripts to facilitate my life...
+
+
+### Challenges
+- 
+
+### Learnings
+- 
+
 ## Date: 19/06/2025
 
 ### Accomplishments
