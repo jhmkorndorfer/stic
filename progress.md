@@ -1,5 +1,17 @@
 # Daily Progress Log
 
+## Date: 24/06/2025
+
+### Accomplishments
+- [x] Exploring do_slave function. No news yet...
+
+
+### Challenges
+- 
+
+### Learnings
+- 
+
 ## Date: 23/06/2025
 
 ### Accomplishments
