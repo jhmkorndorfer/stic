@@ -1,5 +1,17 @@
 # Daily Progress Log
 
+## Date: 26/06/2025
+
+### Accomplishments
+- [x] Vapir is back online. Using new filter
+
+
+### Challenges
+- 
+
+### Learnings
+- 
+
 ## Date: 24/06/2025
 
 ### Accomplishments
