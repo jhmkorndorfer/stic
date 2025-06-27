@@ -39,6 +39,7 @@ void do_slave(int myrank, int nprocs, char hostname[]){
   iput_t input = {};
   vector<line_t> line;
   mat<double> w;
+
   
   //
   // Define ID and rank
