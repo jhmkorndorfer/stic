@@ -1,9 +1,54 @@
 # Daily Progress Log
 
+## Date: 27/06/2025
+
+### Accomplishments
+- [x] New traces :D. They look nice. We should indeed improve this rh...
+ ![Newest trace using filter from 26/06/2025](trace-screenshots/trace-26-06-25.png)
+
+
+
+### Challenges
+- 
+
+### Learnings
+- 
+
+
 ## Date: 26/06/2025
 
 ### Accomplishments
-- [x] Vapir is back online. Using new filter
+- [x] Vapir is back online. Using new filter.
+    - New filter below:
+```
+SCOREP_REGION_NAMES_BEGIN
+EXCLUDE
+*
+INCLUDE
+MPI*
+pthread*
+do_master_sparse*
+slaveInversion*
+mdepthall::*
+comm_master_pack_data*
+do_slave*
+atmos::*
+clm::*
+getChi2(int, int, double*, double*, double*, double**, void*, reg_t&, bool)
+mdepth::*
+ceos::*
+crh::*
+rhf1d
+UpdateAtmosDep
+zeroRadiation
+initScatter
+crh::*
+adjustStokesMode
+calculateRay
+calculate*
+SCOREP_REGION_NAMES_END
+```
+
 
 
 ### Challenges
