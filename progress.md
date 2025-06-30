@@ -1,5 +1,19 @@
 # Daily Progress Log
 
+## Date: 30/06/2025
+
+### Accomplishments
+- [x] Newest and probably final trace for now. This one should contain all the key time consuming functions. Also it is annotated with notes for the future. 
+ ![Annotated trace, complete with all key functions](trace-screenshots/trace-annotated-30-06-25.png)
+
+
+
+### Challenges
+- 
+
+### Learnings
+- 
+
 ## Date: 27/06/2025
 
 ### Accomplishments
