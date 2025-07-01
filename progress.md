@@ -7,7 +7,6 @@
  ![Annotated trace, complete with all key functions](trace-screenshots/trace-annotated-30-06-25.png)
 
 
-
 ### Challenges
 - 
 

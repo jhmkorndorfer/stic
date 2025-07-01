@@ -117,6 +117,9 @@ void do_slave(int myrank, int nprocs, char hostname[]){
       for(int pp = 0; pp<input.nPacked; pp++){
 
 	/* --- Update instrumental profile if needed --- */
+
+  // checking the size of nreg
+  //for(int kk = 0; kk<nreg; kk++) inst[kk]->update((size_t)(input.ipix + pp));
 	
 	for(int kk = 0; kk<nreg; kk++) inst[kk]->update(input.regions[kk].psf.d.size(), &input.regions[kk].psf.d[0]);
 
