@@ -108,6 +108,12 @@ void do_slave(int myrank, int nprocs, char hostname[]){
     comm_slave_unpack_data(input, action, obs, pars, m, compute_derivatives);
     if(action == 0) break; // Exit while loop if action = 0
     
+    // creat a counter and print it such that we can follow how miny iterations we have done
+    static int counter = 0;
+    counter++;
+    // cout counter and myrank
+    fprintf(stderr, "Slave %d: got this many pieces of work = %d\n", myrank, counter);
+
     //
     // Execute action depending on input.mode 
     //
@@ -116,18 +122,19 @@ void do_slave(int myrank, int nprocs, char hostname[]){
       /* --- Invert pixels --- */
       for(int pp = 0; pp<input.nPacked; pp++){
 
-	/* --- Update instrumental profile if needed --- */
+      /* --- Update instrumental profile if needed --- */
 
-	
-	for(int kk = 0; kk<nreg; kk++) inst[kk]->update(input.regions[kk].psf.d.size(), &input.regions[kk].psf.d[0]);
-
-	
-	/* --- Perform inversion --- */
-	
-	input.chi[pp] =
-	  atmos->fitModel2( m[pp], input.npar, &pars(pp,0),
-			    (int)(input.nw_tot*input.ns), &obs(pp,0,0), w);
+      for(int kk = 0; kk<nreg; kk++){
+        inst[kk]->update(input.regions[kk].psf.d.size(), &input.regions[kk].psf.d[0]);
       }
+
+      
+      /* --- Perform inversion --- */
+      
+      input.chi[pp] =
+        atmos->fitModel2( m[pp], input.npar, &pars(pp,0),
+              (int)(input.nw_tot*input.ns), &obs(pp,0,0), w);
+          }
 
       
       // Send back to master

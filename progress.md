@@ -1,5 +1,20 @@
 # Daily Progress Log
 
+## Date: 21/07/2025
+
+### Accomplishments
+- [x] Checking STiC loops:
+    - All loops on slave.cc are for some reason of size 1, wtf? Maybe this changes with the input but anyway it probably means that these loops are not interesting for parallelizaton.
+    - Checking loops on atmosphere.cc:
+        - All loops here are also small, first is the largest with 82 iterations...???
+
+
+### Challenges
+- 
+
+### Learnings
+- 
+
 ## Date: 30/06/2025
 
 ### Accomplishments
