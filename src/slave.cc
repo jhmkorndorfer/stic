@@ -30,6 +30,7 @@
 #include "fpigen.h"
 #include "specrebin.h"
 #include "specprefilter.h"
+#include "chrono"
 
 using namespace std;
 //
@@ -119,23 +120,28 @@ void do_slave(int myrank, int nprocs, char hostname[]){
     //
     if(input.mode == 1){
 
-      /* --- Invert pixels --- */
-      printf("Value of input.nPacked in slave.cc line 123 = %d\n", input.nPacked);
-      for(int pp = 0; pp<input.nPacked; pp++){
+        /* --- Invert pixels --- */
+        printf("Value of input.nPacked in slave.cc line 123 = %d\n", input.nPacked);
+        for(int pp = 0; pp<input.nPacked; pp++){
 
-      /* --- Update instrumental profile if needed --- */
+        /* --- Update instrumental profile if needed --- */
 
-      for(int kk = 0; kk<nreg; kk++){
-        inst[kk]->update(input.regions[kk].psf.d.size(), &input.regions[kk].psf.d[0]);
+        for(int kk = 0; kk<nreg; kk++){
+          inst[kk]->update(input.regions[kk].psf.d.size(), &input.regions[kk].psf.d[0]);
+        }
+
+        
+        /* --- Perform inversion --- */
+        printf("line 134 slave.cc fitModel2\n");
+        // let us create a timmer here to time this function. Lets use chronos
+        auto start = std::chrono::high_resolution_clock::now();
+        input.chi[pp] = atmos->fitModel2( m[pp], input.npar, &pars(pp,0), (int)(input.nw_tot*input.ns), &obs(pp,0,0), w);
+
+        auto end = std::chrono::high_resolution_clock::now();
+        std::chrono::duration<double> elapsed = end - start;
+        fprintf(stderr, "Slave %d: fitModel2 took %f seconds\n", myrank, elapsed.count());          
       }
-
       
-      /* --- Perform inversion --- */
-      printf("I entered here line 134 slave.cc\n");
-      input.chi[pp] =
-        atmos->fitModel2( m[pp], input.npar, &pars(pp,0),
-              (int)(input.nw_tot*input.ns), &obs(pp,0,0), w);
-          }
 
       
       // Send back to master

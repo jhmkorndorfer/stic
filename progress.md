@@ -5,6 +5,7 @@
 ### Accomplishments
 - [] What exactly are instruments for STiC? How many can one have or compute with STiC?
 - [x] Continue checking STiC loops:
+    - Explored double clm::fitdata(clm_func fx, double *x, void *mydat, int maxiter, reg_t &dregul) at clm file. Need to add timmers here. I stopped before the while maxiter.
 
 ### Challenges
 - 

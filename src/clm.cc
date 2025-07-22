@@ -843,7 +843,6 @@ double clm::fitdata(clm_func fx, double *x, void *mydat, int maxiter, reg_t &dre
   /* --- Evaluate residues and RF, init chi2 --- */
 
  
-  printf("AAAAAAAA Maxiter line 846=%d \n\n\n\n", maxiter);
   int status = fx(npar, nd, x, &iSyn[0], res, rf, mydat, dregul, false);
   if(status){
     if(verb)
@@ -851,7 +850,7 @@ double clm::fitdata(clm_func fx, double *x, void *mydat, int maxiter, reg_t &dre
     ochi2 = 1.e13;
     error = true;
     iter = maxiter+1;
-    printf("AAAAAAAA Maxiter line 854=%d \n\n\n\n", maxiter);
+   
   }else{
     scaleRF(rf);
     memcpy(&bestpars[0], &x[0], npar*sizeof(double));
@@ -861,14 +860,11 @@ double clm::fitdata(clm_func fx, double *x, void *mydat, int maxiter, reg_t &dre
     bestchi2 = ochi2;
     orchi2 = ochi2 - reg;
     tchi = bestchi2;
-    printf("AAAAAAAA Maxiter line 864=%d \n\n\n\n", maxiter);
 
     if(verb)
       fprintf(stdout, "[p:%4d, Init] chi2=%f (%f), lambda=%e\n", proc,
 	      orchi2, reg , lambda);
-        printf("AAAAAAAA Maxiter line 869=%d \n\n\n\n", maxiter);
   }
-printf("AAAAAAAA Maxiter line 871=%d \n\n\n\n", maxiter);
    
 
   /* --- Main iterations --- */
