@@ -120,6 +120,7 @@ void do_slave(int myrank, int nprocs, char hostname[]){
     if(input.mode == 1){
 
       /* --- Invert pixels --- */
+      printf("Value of input.nPacked in slave.cc line 123 = %d\n", input.nPacked);
       for(int pp = 0; pp<input.nPacked; pp++){
 
       /* --- Update instrumental profile if needed --- */
@@ -130,7 +131,7 @@ void do_slave(int myrank, int nprocs, char hostname[]){
 
       
       /* --- Perform inversion --- */
-      
+      printf("I entered here line 134 slave.cc\n");
       input.chi[pp] =
         atmos->fitModel2( m[pp], input.npar, &pars(pp,0),
               (int)(input.nw_tot*input.ns), &obs(pp,0,0), w);

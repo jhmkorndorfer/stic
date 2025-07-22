@@ -1,5 +1,17 @@
 # Daily Progress Log
 
+## Date: 22/07/2025
+
+### Accomplishments
+- [] What exactly are instruments for STiC? How many can one have or compute with STiC?
+- [x] Continue checking STiC loops:
+
+### Challenges
+- 
+
+### Learnings
+- atomsphere.cc seems to call fitdata in clm.cc. This seems to be were the magic happens.
+
 ## Date: 21/07/2025
 
 ### Accomplishments

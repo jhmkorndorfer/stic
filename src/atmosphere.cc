@@ -1057,7 +1057,6 @@ double atmos::fitModel2(mdepth_t &m, int npar, double *pars, int nobs, double *o
 
     
   /* --- compute tau scale ---*/
-  // print the value of (int)m.ndep to check loop. do it below here copilot
   
   for(int k = 0; k < (int)m.ndep; k++) m.tau[k] = pow(10.0, m.ltau[k]);
   
