@@ -113,7 +113,8 @@ void do_slave(int myrank, int nprocs, char hostname[]){
     static int counter = 0;
     counter++;
     // cout counter and myrank
-    fprintf(stderr, "Slave %d: got this many pieces of work = %d\n", myrank, counter);
+    // fprintf(stderr, "Slave %d: got this many pieces of work = %d\n", myrank, counter);
+    // Print above useless, it just shows that the workers get piece by piece.
 
     //
     // Execute action depending on input.mode 
@@ -121,7 +122,8 @@ void do_slave(int myrank, int nprocs, char hostname[]){
     if(input.mode == 1){
 
         /* --- Invert pixels --- */
-        printf("Value of input.nPacked in slave.cc line 123 = %d\n", input.nPacked);
+        // printf("Value of input.nPacked in slave.cc line 123 = %d\n", input.nPacked);
+        // input.nPacked always seems to be 1
         for(int pp = 0; pp<input.nPacked; pp++){
 
         /* --- Update instrumental profile if needed --- */
@@ -132,7 +134,7 @@ void do_slave(int myrank, int nprocs, char hostname[]){
 
         
         /* --- Perform inversion --- */
-        printf("line 134 slave.cc fitModel2\n");
+        // printf("line 134 slave.cc fitModel2\n");
         // let us create a timmer here to time this function. Lets use chronos
         auto start = std::chrono::high_resolution_clock::now();
         input.chi[pp] = atmos->fitModel2( m[pp], input.npar, &pars(pp,0), (int)(input.nw_tot*input.ns), &obs(pp,0,0), w);

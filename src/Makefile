@@ -6,8 +6,8 @@ include makefiles/makefile.$(CPU).$(OS)
 RHFOLD = rh/
 
 # Debug flags
-FFLAGS += -g3
-CXXFLAGS += -g3
+FFLAGS += -fopenmp
+CXXFLAGS += -fopenmp
 
 # Paths and includes
 INCLUDE = $(shell ncxx4-config --cflags) -I$(GSLPATH)/include -I./ -I$(RHFOLD) -I$(RHFOLD)/rh_1d
@@ -46,13 +46,13 @@ $(SUBDIRS):
 	
 # Link targets
 STiC: $(FFILES) $(OFILES_SPARSE)
-	$(LINKER) -o STiC.x $(OPTS) $(OPENMP) $^ $(INCLUDE) $(LIBS) $(LINKEROPTS)
+	$(LINKER) -fopenmp -o STiC.x $(OPTS) $(OPENMP) $^ $(INCLUDE) $(LIBS) $(LINKEROPTS)
 
 machine: $(FFILES) $(OFILES_SPARSE)
-	$(LINKER) -o $(STMAC) $(OPTS) $(OPENMP) $^ $(INCLUDE) $(LIBS) $(LINKEROPTS)
+	$(LINKER) -fopenmp -o $(STMAC) $(OPTS) $(OPENMP) $^ $(INCLUDE) $(LIBS) $(LINKEROPTS)
 
 fillDensities: $(FFILES) $(FDENS)
-	$(LINKER) -o fillDensities.x $(CXXFLAGS) $(OPENMP) $(FFILES) $(FDENS) $(LIBS_FDENS) $(INCLUDE) $(LINKEROPTS)
+	$(LINKER) -fopenmp -o fillDensities.x $(CXXFLAGS) $(OPENMP) $(FFILES) $(FDENS) $(LIBS_FDENS) $(INCLUDE) $(LINKEROPTS)
 
 # Clean rule
 clean:

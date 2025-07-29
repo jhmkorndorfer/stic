@@ -28,6 +28,8 @@
 #include "clm.h"
 #include "math_tools.h"
 #include "mmem.h"
+#include "chrono"
+#include <omp.h>
 //
 using namespace std;
 //
@@ -919,28 +921,43 @@ int getChi2(int npar1, int nd, double *pars1, double *syn_in, double *dev, doubl
   
   if(derivs){
     
+printf("Atmosphere.cc 922: npar1 %d\n", npar1);
+omp_set_num_threads(4);
+
+#pragma omp parallel for
     for(int pp = npar1-1; pp >= 0; pp--){
       
       if(derivs[pp]){
-	//atm.cleanup();
-	/* --- Compute response function ---*/
-	
-	memset(&derivs[pp][0], 0, nd*sizeof(double));
-	atm.responseFunction(npar1, m, &ipars[0], nd,
-			      &derivs[pp][0], pp, &atm.isyn[0]);
+        //atm.cleanup();
+        /* --- Compute response function ---*/
 
-	
-	/* --- Degrade response function --- */
-	
-	atm.spectralDegrade(atm.input.ns, (int)1, nd, &derivs[pp][0]);
+        memset(&derivs[pp][0], 0, nd*sizeof(double));
 
-	
-	/* --- renormalize the response function by the 
-	   scaling factor and divide by the noise --- */
-		
-	for(int ii = 0; ii<nd; ii++)
-	  derivs[pp][ii] *= (atm.scal[pp] / atm.w[ii]) * nd1;
-	  //derivs[pp][ii]  /= atm.w[ii];
+        auto start = std::chrono::high_resolution_clock::now();
+
+        #pragma omp critical
+        {
+    
+        atm.responseFunction(npar1, m, &ipars[0], nd,
+                  &derivs[pp][0], pp, &atm.isyn[0]);
+        }
+
+        auto end = std::chrono::high_resolution_clock::now();
+        std::chrono::duration<double> elapsed = end - start;
+        printf("fitModel2  took %f seconds\n", elapsed.count());
+
+        
+        /* --- Degrade response function --- */
+        
+    
+        atm.spectralDegrade(atm.input.ns, (int)1, nd, &derivs[pp][0]);
+
+        /* --- renormalize the response function by the 
+          scaling factor and divide by the noise --- */
+          
+        for(int ii = 0; ii<nd; ii++)
+          derivs[pp][ii] *= (atm.scal[pp] / atm.w[ii]) * nd1;
+          //derivs[pp][ii]  /= atm.w[ii];
 	
       }
     }    
@@ -1117,7 +1134,7 @@ double atmos::fitModel2(mdepth_t &m, int npar, double *pars, int nobs, double *o
   } else lm.regularize = false;
   
   /* ---  Set parameter limits --- */
-  printf("VALUE OF NPAR (line 1121): %d\n", npar);
+  //VALUE OF NPAR is 19 TOO SMALL
   
   for(int pp = 0; pp<npar; pp++){
 
@@ -1161,7 +1178,8 @@ double atmos::fitModel2(mdepth_t &m, int npar, double *pars, int nobs, double *o
   /* --- Loop iters --- */
   int do_vel_grad = -1;
 
-  printf("VALUE OF nInv (line 1165): %d\n", input.nInv);
+  // printf("VALUE OF nInv (line 1165): %d\n", input.nInv);
+  // VALUE OF nInv = 1 !!!
   
   for(int iter = 0; iter < input.nInv; iter++){
 

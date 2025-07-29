@@ -4,9 +4,9 @@ include ../../makefiles/makefile.$(CPU).$(OS)
 
 RHINC = -I../ -I../../ -I../../eigen3
 
-CFLAGS += -g3
-FFLAGS += -g3
-CXXFLAGS += -g3
+CFLAGS += -fopenmp
+FFLAGS += -fopenmp
+CXXFLAGS += -fopenmp
 
 ## --- Define groups of object files --                -------------- ##
 

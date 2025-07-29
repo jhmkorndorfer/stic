@@ -1197,9 +1197,12 @@ void clm::compute_trial3(double *res, double **rf, double lambda,
        the L matrix with the individual penalties array (not squared).
        --- */
 
+
+    printf("CLM.cc:1201 --- npar:%d\n", npar);
     for(int yy = 0; yy<npar; yy++){
       for(int xx = 0; xx<npar; xx++){
 	
+    printf("CLM.cc:1205 --- npen:%d\n", npen);
 	for(int jj=0; jj<npen; jj++)
 	  tmp1[jj] = dregul.dreg[jj][xx] * dregul.dreg[jj][yy]; // L.t # L = L # L.t
 	
@@ -1216,11 +1219,13 @@ void clm::compute_trial3(double *res, double **rf, double lambda,
     }//yy
   }
   
+  printf("CLM.cc:1222 --- npar:%d\n", npar);
   for(int yy = 0; yy<npar; yy++){
 
     
     /* --- Compute the Hessian matrix --- */
 
+    printf("CLM.cc:1228 --- yy:%d\n", yy);
     for(int xx = 0; xx<=yy; xx++){
       for(int ww = 0; ww<nd; ww++) tmp[ww] = rf[yy][ww] * rf[xx][ww];
       

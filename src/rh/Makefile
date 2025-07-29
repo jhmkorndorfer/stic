@@ -6,9 +6,9 @@ OS := $(shell uname -s)
 include ../makefiles/makefile.$(CPU).$(OS)
 
 # Add debug symbols
-CFLAGS   += -g3
-CXXFLAGS += -g3
-FFLAGS   += -g3
+CFLAGS   += -fopenmp
+CXXFLAGS += -fopenmp
+FFLAGS   += -fopenmp
 
 # Include paths
 RHINC = -I../ -I../eigen3
