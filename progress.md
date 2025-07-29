@@ -1,5 +1,16 @@
 # Daily Progress Log
 
+## Date: 29/07/2025
+
+### Accomplishments
+- Attention, there are new MAKEFILES!!
+
+### Challenges
+- 
+
+### Learnings
+- atomsphere.cc seems to call fitdata in clm.cc. This seems to be were the magic happens.
+
 ## Date: 22/07/2025
 
 ### Accomplishments
