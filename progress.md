@@ -1,5 +1,15 @@
 # Daily Progress Log
 
+## Date: ***05/08/2025***
+
+### Accomplishments (including missing notes)
+- atmosphere.cc:927. We will try to make a copy of the object atm as it causes race conditions.
+    - This is going reallly far. I am now trying to make rhf1d threadsafe. Hopefully one day it will work. More notes and details will come later. Now its just tedious debugging.
+        
+
+### Challenges
+- 
+
 ## Date: 29/07/2025 --> ***04/08/2025***
 
 ### Accomplishments (including missing notes)
