@@ -1,5 +1,15 @@
 # Daily Progress Log
 
+## Date: 29/07/2025 --> ***04/08/2025***
+
+### Accomplishments (including missing notes)
+- We are now working on trying to add OpenMP some loops inside STiC:
+    - Starting with: atmosphere.cc:927. We will try to make a copy of the object atm as it causes race conditions.
+        
+
+### Challenges
+- 
+
 ## Date: 29/07/2025
 
 ### Accomplishments
