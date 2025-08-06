@@ -46,7 +46,9 @@ class atmos{
   virtual void responseFunction(int npar, mdepth_t &m, double *pars, int nd, double *out, int pp, double *syn);
   virtual void responseFunctionFull(mdepth_t m, int nd, double *out, double *syn, int pp);
 
-  
+  //Trying to add clone method
+  virtual atmos* clone() const = 0;
+
   //virtual void getArea(int npar, double *pars, int ndep, double *ltau, nodes_t &no, int pp);
   virtual void checkBounds(mdepth_t &m) = 0;
 

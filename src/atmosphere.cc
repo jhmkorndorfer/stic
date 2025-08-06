@@ -885,7 +885,7 @@ int getChi2(int npar1, int nd, double *pars1, double *syn_in, double *dev, doubl
   for(int pp = 0; pp<npar1; pp++)
     ipars[pp] = pars1[pp] * atm.scal[pp];
 
-  
+  printf("Atmosphere.cc 888: npar1 %d\n", npar1);
   if(store){
     mdepth &m1 = *atm.imodel->ref_m;
     m1.expand(atm.input.nodes, &ipars[0], atm.input.dint, atm.input.depth_model);
@@ -898,7 +898,7 @@ int getChi2(int npar1, int nd, double *pars1, double *syn_in, double *dev, doubl
   
   
 
-  
+  printf("Atmosphere.cc 901: npar1 %d\n", npar1);
   m.expand(atm.input.nodes, &ipars[0], atm.input.dint, atm.input.depth_model);
   atm.checkBounds(m);
   m.getPressureScale(atm.input.nodes.depth_t, atm.input.boundary, *atm.eos);
@@ -906,11 +906,11 @@ int getChi2(int npar1, int nd, double *pars1, double *syn_in, double *dev, doubl
   
   
   /* --- Compute synthetic spetra --- */
-  
+  printf("Atmosphere.cc 909: npar1 %d\n", npar1);
   memset(&atm.isyn[0], 0, nd*sizeof(double));
   //  for(int ii=0; ii<m.ndep;ii++) fprintf(stderr,"%e %e %e %e %e\n", m.cmass[ii], m.temp[ii], m.v[ii], m.vturb[ii], m.pgas[ii]);
   bool conv = atm.synth( m , &atm.isyn[0], 0, (cprof_solver)atm.input.solver, true);  
-  
+  printf("Atmosphere.cc 913: npar1 %d\n", npar1);
   
   if(!conv){
     atm.cleanup();
@@ -921,47 +921,62 @@ int getChi2(int npar1, int nd, double *pars1, double *syn_in, double *dev, doubl
   
   if(derivs){
     
-printf("Atmosphere.cc 922: npar1 %d\n", npar1);
+
 omp_set_num_threads(4);
 
-#pragma omp parallel for
-    for(int pp = npar1-1; pp >= 0; pp--){
-      
-      if(derivs[pp]){
-        //atm.cleanup();
-        /* --- Compute response function ---*/
+#pragma omp parallel
+{
+  atmos* local_atm = atm.clone();
 
-        memset(&derivs[pp][0], 0, nd*sizeof(double));
-
-        auto start = std::chrono::high_resolution_clock::now();
-
-        #pragma omp critical
-        {
-    
-        atm.responseFunction(npar1, m, &ipars[0], nd,
-                  &derivs[pp][0], pp, &atm.isyn[0]);
-        }
-
-        auto end = std::chrono::high_resolution_clock::now();
-        std::chrono::duration<double> elapsed = end - start;
-        printf("fitModel2  took %f seconds\n", elapsed.count());
-
-        
-        /* --- Degrade response function --- */
-        
-    
-        atm.spectralDegrade(atm.input.ns, (int)1, nd, &derivs[pp][0]);
-
-        /* --- renormalize the response function by the 
-          scaling factor and divide by the noise --- */
-          
-        for(int ii = 0; ii<nd; ii++)
-          derivs[pp][ii] *= (atm.scal[pp] / atm.w[ii]) * nd1;
-          //derivs[pp][ii]  /= atm.w[ii];
-	
-      }
-    }    
+  if (!local_atm) {
+    fprintf(stderr, "Thread %d: Failed to clone atmos object!\n", omp_get_thread_num());
+    exit(1);
   }
+  printf("Thread %d: Cloned atmos object successfully\n", omp_get_thread_num());
+
+  #pragma omp for
+  for (int pp = npar1 - 1; pp >= 0; pp--) {
+    if (derivs[pp]) {
+
+      // Create a private copy of atm.isyn for this iteration
+      std::vector<double> syn_copy(atm.isyn.begin(), atm.isyn.end());
+
+      memset(&derivs[pp][0], 0, nd * sizeof(double));
+
+      auto start = std::chrono::high_resolution_clock::now();
+      #pragma omp critical
+      {
+      printf("Thread %d entering synth\n", omp_get_thread_num());
+      }
+      bool ok = local_atm->synth(m, &syn_copy[0], 1, (cprof_solver)local_atm->input.solver, false);
+      #pragma omp critical
+      {
+      printf("Thread %d exiting synth\n", omp_get_thread_num());
+      }
+
+      auto end = std::chrono::high_resolution_clock::now();
+      std::chrono::duration<double> elapsed = end - start;
+      printf("fitModel2  took %f seconds\n", elapsed.count());
+
+      // #pragma omp critical
+      // {
+      local_atm->spectralDegrade(local_atm->input.ns, 1, nd, &derivs[pp][0]);
+      // }
+
+      // #pragma omp critical
+      // {
+        for (int ii = 0; ii < nd; ii++) {
+          derivs[pp][ii] *= (local_atm->scal[pp] / local_atm->w[ii]) * nd1;
+        }
+      // }
+    }
+  }
+
+  // delete local_atm;
+}
+
+
+}
 
 
   /* --- Degrade synthetic spectra --- */
