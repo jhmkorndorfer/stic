@@ -13,7 +13,8 @@
 #include <math.h>
 #include <string.h>
 
-#include "rh.h"
+// #include "rh.h"
+#include "rhf1d.h"
 #include "atom.h"
 #include "atmos.h"
 #include "spectrum.h"
@@ -22,7 +23,7 @@
 #include "error.h"
 #include "statistics.h"
 #include "inputs.h"
-#include "rhf1d.h"
+
 
 typedef struct {
   bool_t eval_operator, redistribute;

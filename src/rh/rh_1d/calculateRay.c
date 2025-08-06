@@ -1,5 +1,6 @@
 #include <stdlib.h>
-#include "rh.h"
+// #include "rh.h"
+#include "rhf1d.h"
 #include "atom.h"
 #include "atmos.h"
 #include "geometry.h"
@@ -8,7 +9,7 @@
 #include "background.h"
 #include "error.h"
 #include "inputs.h"
-#include "rhf1d.h"
+
 
 
 

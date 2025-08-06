@@ -3,7 +3,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "rh.h"
+// #include "rh.h"
+#include "rhf1d.h"
 #include "atom.h"
 #include "atmos.h"
 #include "geometry.h"
@@ -12,7 +13,7 @@
 #include "error.h"
 #include "inputs.h"
 #include "spectrum.h"
-#include "rhf1d.h"
+// #include "rhf1d.h"
 
 /* --- Global variables --                             -------------- */
 extern Atmosphere atmos;

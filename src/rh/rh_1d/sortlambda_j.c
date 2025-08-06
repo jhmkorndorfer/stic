@@ -14,7 +14,8 @@
 #include <string.h>
 
 
-#include "rh.h"
+// #include "rh.h"
+#include "rhf1d.h"
 #include "atom.h"
 #include "atmos.h"
 #include "spectrum.h"
@@ -121,6 +122,79 @@ void get_unique_PRD_XRD_lines()
   
 }
 
+void get_unique_PRD_XRD_lines_ctx(RHContext *ctx)
+{
+  register unsigned int ww, ll, nact, kr, nlines;
+  int nprd=0, nprd1 = 0;
+  Atom *atom;
+  AtomicLine *line, *XRDline, **all_lines;
+
+  Atmosphere *atmosLocal = &ctx->atmos;
+  InputData *inputLocal = &ctx->input;
+  Spectrum *spectrumLocal = &ctx->spectrum;
+  
+
+  if(atmosLocal->NPRDactive > 0){
+    for (nact = 0;  nact < atmosLocal->Nactiveatom;  nact++) {
+      atom = atmosLocal->activeatoms[nact];
+
+      // Loop lines
+      for (kr = 0;  kr < atom->Nline;  kr++) {
+	line = &atom->line[kr];
+
+	if (line->PRD) {
+	  nprd += 1;
+	  if(inputLocal->XRD && (line->Nxrd > 0))
+	    nprd += line->Nxrd;
+	  //fprintf(stderr,"nXRD=%d\n",line->Nxrd );
+	}
+      }
+    }
+  }
+  
+  all_lines = calloc(nprd, sizeof(AtomicLine*));
+
+
+  
+  // second pass, check for repeated lines
+
+  if(atmosLocal->NPRDactive > 0){
+    for (nact = 0;  nact < atmosLocal->Nactiveatom;  nact++) {
+      atom = atmosLocal->activeatoms[nact];
+
+      // Loop lines
+      for (kr = 0;  kr < atom->Nline;  kr++) {
+	line = &atom->line[kr];
+	
+	if (line->PRD) {
+	  check_PRD_line(all_lines, line, &nprd1);
+
+	  if(inputLocal->XRD && (line->Nxrd > 0))
+	    for(nlines=0; nlines<line->Nxrd; nlines++){
+	      XRDline = line->xrd[nlines];
+	      check_PRD_line(all_lines, XRDline, &nprd1);
+	    } 
+	}
+      }
+    }
+  }
+
+  // Now copy all unique lines to spectrum.PRDlines
+
+  spectrumLocal->PRDlines = calloc(nprd1, sizeof(AtomicLine*));
+  spectrumLocal->nPRDlines = (int)nprd1;
+
+  //fprintf(stderr,"Found %d PRD/XRD lines of %d\n", nprd1, nprd);
+  for(nlines=0; nlines<nprd1; nlines++){
+    spectrumLocal->PRDlines[nlines] = all_lines[nlines];
+  }
+
+  // cleanup
+
+  free(all_lines);
+  
+}
+
 
 void init_info_lambda( )
 {
@@ -191,6 +265,86 @@ void init_info_lambda( )
 	if(spectrum.lambda[ww] == spectrum.Jlam[ll]){
 	  spectrum.linfo[ww].is = 1;
 	  spectrum.linfo[ww].idx = ll;
+	}
+    }
+    
+  }
+}
+
+
+void init_info_lambda_ctx(RHContext *ctx)
+{
+  register int nlines, nwav=0, off=0, ww,ll;
+  double *lam;
+  AtomicLine *lin;
+
+  Atmosphere *atmosLocal = &ctx->atmos;
+  InputData *inputLocal = &ctx->input;
+  Spectrum *spectrumLocal = &ctx->spectrum;
+  
+  // --- allocate wavelengths info array ---//
+
+  unsigned int Nspect = spectrumLocal->Nspect;
+  spectrumLocal->linfo = (linf*)calloc(Nspect, sizeof(linf));
+
+  if(atmosLocal->NPRDactive > 0){
+    for(nlines=0; nlines<spectrumLocal->nPRDlines; nlines++){
+      nwav += spectrumLocal->PRDlines[nlines]->Nlambda;
+    }
+
+    // --- Now make array of unique lambdas --- //
+
+    lam = calloc(nwav, sizeof(double));
+    for(nlines=0; nlines<spectrumLocal->nPRDlines; nlines++){
+      memcpy(&lam[off], spectrumLocal->PRDlines[nlines]->lambda, spectrumLocal->PRDlines[nlines]->Nlambda*sizeof(double));
+      off+= spectrumLocal->PRDlines[nlines]->Nlambda;
+    }
+    
+    qsort(lam, nwav, sizeof(double), qsascend);
+
+    // --- Now check Unique ones ---//
+
+    off = 1;
+    for(ww=1; ww<nwav; ww++)
+      if(lam[ww] > lam[ww-1]){
+	lam[off++] = lam[ww];
+      }
+    nwav = off;
+    //fprintf(stderr,"Found %d unique wav of %d\n", off, nwav);
+
+    // --- Assign position in Jgas --- //
+    
+    //    spectrum.Jgas = matrix_double(nwav, atmos.Nspace);
+    spectrumLocal->Jgas = d2dim(-1, nwav, 0, atmosLocal->Nspace-1);
+
+    for(nlines=0; nlines<spectrumLocal->nPRDlines; nlines++){
+      lin = spectrumLocal->PRDlines[nlines];
+      for(ww=0; ww<off; ww++){
+	if(lam[ww] == lin->lambda[0]){
+	  lin->Jgas = &spectrumLocal->Jgas[ww];
+	  //fprintf(stderr,"Found Jgas line -> %f\n", lin->lambda0);
+	  break;
+	 
+	}
+      }
+    }
+    
+    // -- Cleanup
+
+    spectrumLocal->Jlam = ((double*)malloc((nwav+2)*sizeof(double)))+1;
+    spectrumLocal->nJlam = nwav;
+    memcpy(&spectrumLocal->Jlam[0], lam, off*sizeof(double));
+    free(lam);
+
+    spectrumLocal->Jlam[-1] = spectrumLocal->Jlam[0]-1.e3;
+    spectrumLocal->Jlam[off] = spectrumLocal->Jlam[off-1] + 1.0e3;
+    
+    // Check mapping to total wavelength array //
+    for(ww=0; ww<spectrumLocal->Nspect; ww++){
+      for(ll=0; ll<off; ll++)
+	if(spectrumLocal->lambda[ww] == spectrumLocal->Jlam[ll]){
+	  spectrumLocal->linfo[ww].is = 1;
+	  spectrumLocal->linfo[ww].idx = ll;
 	}
     }
     
@@ -758,3 +912,569 @@ void SortLambda_j(int mynw, double *mylambda)
 
 }
 /* ------- end ---------------------------- SortLambda.c ------------ */
+
+
+/* ------- begin -------------------------- SortLambda_ctx.c ------------ */
+
+void SortLambda_j_ctx(int mynw, double *mylambda, RHContext *ctx)
+{
+  const char routineName[] = "SortLambda_j_ctx";
+  register int kr, n, m, nspect, la, nact;
+
+  Atmosphere *atmosLocal = &ctx->atmos;
+  InputData *inputLocal = &ctx->input;
+  Spectrum *spectrumLocal = &ctx->spectrum;
+
+  bool_t  hunt, unique, result;
+  int     Nred, Nspectrum, Nlambda_original, Z, i, j, Nwave;
+  double *alpha_original, gbf_0, n_eff, *wavetable;
+  ActiveSet *as;
+  Atom *atom;
+  Molecule *molecule;
+  AtomicLine *line;
+  AtomicContinuum *continuum;
+  MolecularLine *mrt;
+  FILE  *fp_wavetable;
+  XDR    xdrs;
+  double *dummy;
+
+  getCPU(2, TIME_START, NULL);
+
+  /* --- First read the wavelength table if specified -- ------------ */
+
+  result = TRUE;
+  wavetable = NULL;
+
+
+  if (strcmp(inputLocal->wavetable_input, "none")) {
+    if ((fp_wavetable = fopen(inputLocal->wavetable_input, "r")) == NULL) {
+      sprintf(messageStr, "Unable to open input file %s",
+	      inputLocal->wavetable_input);
+      Error(ERROR_LEVEL_2, routineName, messageStr);
+    }
+    xdrstdio_create(&xdrs, fp_wavetable, XDR_DECODE);
+
+    result &= xdr_int(&xdrs, &Nwave);
+    wavetable = (double *) malloc(Nwave * sizeof(double));
+    result &= xdr_vector(&xdrs, (char *) wavetable, Nwave,
+			 sizeof(double), (xdrproc_t) xdr_double);
+    if (!result) {
+      sprintf(messageStr, "Unable to read from input file %s",
+	      inputLocal->wavetable_input);
+      Error(ERROR_LEVEL_2, routineName, messageStr);
+    }
+    xdr_destroy(&xdrs);
+    fclose(fp_wavetable);
+  } else
+    Nwave = 0;
+
+
+  
+  /* --- add external wavelengths --- */
+  if(mynw > 0){
+    
+    if(Nwave > 0){
+      dummy = (double*) calloc(Nwave, sizeof(double));
+      //memcpy(&dummy[0], &wavetable[0], Nwave * sizeof(double));
+      for(la=0; la<Nwave;la++) dummy[la] = wavetable[la];
+      
+      free(wavetable);
+      wavetable = NULL;
+    }
+        
+    wavetable = (double*) calloc( Nwave + mynw, sizeof(double));
+    //memcpy(&wavetable[0], &mylambda[0], mynw*sizeof(double));
+    for(la=0; la<mynw;la++) wavetable[la] = mylambda[la];
+
+    if(Nwave > 0) {
+      //memcpy(&wavetable[mynw], &dummy[0], Nwave*sizeof(double));
+      for(la=mynw; la<(Nwave+mynw);la++) wavetable[la] = dummy[la-mynw]; 
+
+      free(dummy);
+      dummy = NULL;
+    }
+    
+    Nwave += mynw;
+
+  }
+
+  
+
+  /* --- Add reference wavelength if necessary --      -------------- */
+
+  Nspectrum = (atmosLocal->lambda_ref > 0.0) ? Nwave + 1 : Nwave;
+
+  /* --- Go through the active atoms to collect number of wavelengths
+         for the lines and continua treated in detail -- ------------ */
+
+  atmosLocal->Nactiveatom = 0;
+  for (n = 0;  n < atmosLocal->Natom;  n++) {
+    atom = &atmosLocal->atoms[n];
+    if (atom->active) {
+      for (kr = 0;  kr < atom->Ncont;  kr++)
+	Nspectrum += atom->continuum[kr].Nlambda;
+      for (kr = 0;  kr < atom->Nline;  kr++)
+	Nspectrum += atom->line[kr].Nlambda;
+
+      atom->activeindex = atmosLocal->Nactiveatom;
+      atmosLocal->Nactiveatom++;
+    }
+  }
+  /* --- Store the pointers to the active atoms, so that they can be
+         enumerated --                                 -------------- */
+
+  if (atmosLocal->Nactiveatom > 0) {
+    atmosLocal->activeatoms = (Atom **) malloc(atmosLocal->Nactiveatom *
+					 sizeof(Atom *));
+    for (n = 0;  n < atmosLocal->Natom;  n++) {
+      atom = &atmosLocal->atoms[n];
+      if (atom->active)
+	atmosLocal->activeatoms[atom->activeindex] = atom;
+    }
+  } else
+    atmosLocal->activeatoms = NULL;
+
+  /* --- Add number of wavelengths for lines in active molecules -- - */
+
+  atmosLocal->Nactivemol = 0;
+  for (n = 0;  n < atmosLocal->Nmolecule;  n++) {
+    molecule = &atmosLocal->molecules[n];
+    if (molecule->active) {
+      for (kr = 0;  kr < molecule->Nrt;  kr++)
+      Nspectrum += molecule->mrt[kr].Nlambda;
+
+      molecule->activeindex = atmosLocal->Nactivemol;
+      atmosLocal->Nactivemol++;
+    }
+  }
+  
+ /* --- Store the pointers to the active molecules, so that they can be
+        enumerated --                                  -------------- */
+
+  if (atmosLocal->Nactivemol > 0) {
+    atmosLocal->activemols = (Molecule **) malloc(atmosLocal->Nactivemol *
+					    sizeof(Molecule *));
+    for (n = 0;  n < atmosLocal->Nmolecule;  n++) {
+      molecule = &atmosLocal->molecules[n];
+      if (molecule->active)
+	atmosLocal->activemols[molecule->activeindex] = molecule;
+    }
+  } else
+    atmosLocal->activemols = NULL;
+
+  /* --- Fill the wavelength array --                  -------------- */
+
+  nspect = 0;
+  spectrumLocal->lambda = (double *) malloc(Nspectrum  * sizeof(double));
+
+  /* --- First the referenece wavelength if specified -- ------------ */
+
+  if (atmosLocal->lambda_ref > 0.0)
+    spectrumLocal->lambda[nspect++] = atmosLocal->lambda_ref;
+
+  /* --- Then the wavelength table --                  -------------- */
+
+  for (kr = 0;  kr < Nwave;  kr++)
+    spectrumLocal->lambda[nspect++] = wavetable[kr];
+
+  free(wavetable);
+
+  
+  /* --- Finally, all the detailed radiative transitions -- --------- */
+
+  atmosLocal->NPRDactive = 0;
+
+  for (nact = 0;  nact < atmosLocal->Nactiveatom;  nact++) {
+    atom = atmosLocal->activeatoms[nact];
+    for (kr = 0;  kr < atom->Ncont;  kr++) {
+      continuum = &atom->continuum[kr];
+      for (la = 0;  la < continuum->Nlambda;  la++)
+	spectrumLocal->lambda[nspect++] = continuum->lambda[la];
+    }
+    for (kr = 0;  kr < atom->Nline;  kr++) {
+      line = &atom->line[kr];
+      for (la = 0;  la < line->Nlambda;  la++)
+	spectrumLocal->lambda[nspect++] = line->lambda[la];
+      if (line->PRD) atmosLocal->NPRDactive++;
+    }
+  }
+  /* --- Active molecular lines --                     -------------- */
+
+  for (nact = 0;  nact < atmosLocal->Nactivemol;  nact++) {
+    molecule = atmosLocal->activemols[nact];
+    for (kr = 0;  kr < molecule->Nrt;  kr++) {
+      mrt = &molecule->mrt[kr];
+      for (la = 0;  la < mrt->Nlambda;  la++)
+	spectrumLocal->lambda[nspect++] = mrt->lambda[la];
+    }
+  }
+  /* --- Sort the wavelengths in ascending order --    -------------- */
+
+  qsort(spectrumLocal->lambda, Nspectrum, sizeof(double), qsascend);
+
+  /* --- Check for duplicate wavelengths --            -------------- */
+
+  spectrumLocal->Nspect = 1;
+  for (nspect = 1;  nspect < Nspectrum;  nspect++) {
+    if (spectrumLocal->lambda[nspect] > spectrumLocal->lambda[nspect-1]) {
+      spectrumLocal->lambda[spectrumLocal->Nspect] = spectrumLocal->lambda[nspect];
+      spectrumLocal->Nspect++;
+    }
+  }
+  sprintf(messageStr, "\n %s: Found %d unique wavelengths\n",
+	  routineName, spectrumLocal->Nspect);
+  Error(MESSAGE, routineName, messageStr);
+  if (spectrumLocal->Nspect < Nspectrum) {
+    sprintf(messageStr, " %s: Eliminated %d duplicate wavelengths\n\n",
+	    routineName, Nspectrum - spectrumLocal->Nspect);
+    Error(MESSAGE, routineName, messageStr);
+  }
+  /* --- Allocate space for wavelength array and active sets -- ----- */
+
+  wavetable = malloc((spectrumLocal->Nspect)*sizeof(double));
+  memcpy(wavetable,spectrumLocal->lambda, spectrumLocal->Nspect*sizeof(double));
+
+  spectrumLocal->lambda = ((double *) realloc(spectrumLocal->lambda,
+					(spectrumLocal->Nspect+2)*sizeof(double)))+1;
+
+  memcpy(&spectrumLocal->lambda[0],wavetable, spectrumLocal->Nspect*sizeof(double) );
+  free(wavetable);
+
+  spectrumLocal->lambda[-1] = -1.e44, spectrumLocal->lambda[spectrumLocal->Nspect] = 1.e44;
+
+  spectrumLocal->as = (ActiveSet *) malloc(spectrumLocal->Nspect * sizeof(ActiveSet));
+
+  /* --- Go through each established wavelength and gather active
+         transitions --                                -------------- */
+
+  for (nspect = 0;  nspect < spectrumLocal->Nspect;  nspect++) {
+    as = &spectrumLocal->as[nspect];
+
+    /* --- as->art and as->mrt store the arrays of active
+           transitions for each active atom
+           and molecule at this wavelength seperately -- ------------ */
+
+    if (atmosLocal->Nactiveatom > 0) {
+      as->Nactiveatomrt =
+	(int *) malloc(atmosLocal->Nactiveatom * sizeof(int));
+      as->art = (AtomicTransition **)
+	malloc(atmosLocal->Nactiveatom * sizeof(AtomicTransition *));
+
+      for (nact = 0;  nact < atmosLocal->Nactiveatom;  nact++) {
+	as->Nactiveatomrt[nact] = 0;
+	as->art[nact] = (AtomicTransition *)
+	  malloc(N_MAX_OVERLAP * sizeof(AtomicTransition));
+      }
+    } else {
+      as->Nactiveatomrt = NULL;
+      as->art = NULL;
+    }
+
+    if (atmosLocal->Nactivemol > 0) {
+      as->Nactivemolrt = (int *)
+	malloc(atmosLocal->Nactivemol * sizeof(int));
+      as->mrt = (MolTransition **)
+	malloc(atmosLocal->Nactivemol * sizeof(MolTransition *));
+
+      for (nact = 0;  nact < atmosLocal->Nactivemol;  nact++) {
+	as->Nactivemolrt[nact] = 0;
+	as->mrt[nact] = (MolTransition *)
+	  malloc(N_MAX_OVERLAP * sizeof(MolTransition));
+      }
+    } else {
+      as->Nactivemolrt = NULL;
+      as->mrt = NULL;
+    }
+  }
+  /* --- Determine what transitions are active at which
+         wavelengths and store the pointers to those transitions. - - */
+
+  for (nact = 0;  nact < atmosLocal->Nactiveatom;  nact++) {
+    atom = atmosLocal->activeatoms[nact];
+
+    /*--- Go through the continua first --             -------------- */
+
+    Nred = 0;
+    for (kr = 0;  kr < atom->Ncont;  kr++) {
+      continuum = &atom->continuum[kr];
+
+      /* --- Store the original wavelength array size -- ------------ */
+
+      Nlambda_original = continuum->Nlambda;
+
+      /* --- Find the indices of the lowest (Nblue) and highest (Nred)
+             wavelength of the current transition --     ------------ */
+
+      Hunt(spectrumLocal->Nspect, spectrumLocal->lambda,
+	   continuum->lambda[0], &continuum->Nblue);
+      Hunt(spectrumLocal->Nspect, spectrumLocal->lambda,
+	   continuum->lambda[continuum->Nlambda-1], &Nred);
+      continuum->Nlambda = Nred - continuum->Nblue + 1;
+
+      /* --- Store the pointer to the current transition in the
+	     active set (as) at each wavelength covered by the current
+             transition. Calculate wavelength integration weights - - */
+
+      for (nspect = continuum->Nblue;  nspect <= Nred;  nspect++) {
+	as   = &spectrumLocal->as[nspect];
+	nact = atom->activeindex;
+
+	as->art[nact][as->Nactiveatomrt[nact]].type = ATOMIC_CONTINUUM;
+	as->art[nact][as->Nactiveatomrt[nact]].ptype.continuum = continuum;
+	as->Nactiveatomrt[nact]++;
+	
+	if (as->Nactiveatomrt[nact] == N_MAX_OVERLAP) {
+	  sprintf(messageStr,
+		  "\n Too many overlapping transitions (> %d) "
+		  "for atom %s and nspect = %d\n",
+		  as->Nactiveatomrt[nact], atom->ID, nspect);
+	  Error(ERROR_LEVEL_2, routineName, messageStr);
+	}
+      }
+      /* --- In case of Bound-Free transition compute absorption
+             cross-section if wavelength dependence is hydrogenic,
+	     interpolate if wavelength dependence is given
+             explicitly --                             -------------- */
+      
+      if (continuum->hydrogenic) {
+	free(continuum->lambda);
+	continuum->lambda = spectrumLocal->lambda + continuum->Nblue;
+	continuum->alpha =
+	  (double *) realloc(continuum->alpha,
+			     continuum->Nlambda*sizeof(double));
+	
+	Z = atom->stage[continuum->j];
+	n_eff = Z * sqrt(E_RYDBERG /
+			 (atom->E[continuum->j] - atom->E[continuum->i]));
+	gbf_0 = Gaunt_bf(continuum->lambda0, n_eff, Z);
+	
+	for (la = 0;  la < continuum->Nlambda;  la++) {
+	  continuum->alpha[la] = continuum->alpha0 *
+	    Gaunt_bf(continuum->lambda[la], n_eff, Z) / gbf_0 *
+	    CUBE(continuum->lambda[la]/continuum->lambda0);
+	}
+      } else {
+	alpha_original = continuum->alpha;
+	double* alpha_new = (double*)calloc(continuum->Nlambda,sizeof(double));
+	splineHermite(Nlambda_original, continuum->lambda, alpha_original, continuum->Nlambda, spectrumLocal->lambda + continuum->Nblue, alpha_new);
+	free((void*)continuum->alpha);
+	continuum->alpha = (double*)malloc(continuum->Nlambda * sizeof(double));
+	memcpy(continuum->alpha, alpha_new,continuum->Nlambda*sizeof(double));
+	free(alpha_new);
+	/*
+	  splineCoef(Nlambda_original, continuum->lambda, alpha_original);
+	
+	continuum->alpha =
+	  (double *) malloc(continuum->Nlambda * sizeof(double));
+	splineEval(continuum->Nlambda, spectrum.lambda + continuum->Nblue,
+		   continuum->alpha, hunt=TRUE);
+	
+	*/
+	
+	
+	free(continuum->lambda);
+	continuum->lambda = spectrumLocal->lambda + continuum->Nblue;
+      }
+    }
+    /* --- Then go through the bound-bound transitions -- ----------- */
+
+    for (kr = 0;  kr < atom->Nline;  kr++) {
+      line = &atom->line[kr];
+
+      /* --- Store the original wavelength array size --  ----------- */
+
+      Nlambda_original = line->Nlambda;
+
+      /* --- Find the indices of the lowest (Nblue) and highest (Nred)
+             wavelength of the current transition --      ----------- */
+
+      Hunt(spectrumLocal->Nspect, spectrumLocal->lambda, line->lambda[0],
+	   &line->Nblue);
+      Hunt(spectrumLocal->Nspect, spectrumLocal->lambda,
+	   line->lambda[line->Nlambda-1], &Nred);
+      line->Nlambda = Nred - line->Nblue + 1;
+
+      /* --- Store the pointer to the current transition in the
+             active set (as) at each wavelength covered by the current
+             transition. Calculate wavelength integration weights - - */
+
+      for (nspect = line->Nblue;  nspect <= Nred;  nspect++) {
+	as = &spectrumLocal->as[nspect];
+	nact = atom->activeindex;
+
+	as->art[nact][as->Nactiveatomrt[nact]].type = ATOMIC_LINE;
+	as->art[nact][as->Nactiveatomrt[nact]].ptype.line = line;
+	as->Nactiveatomrt[nact]++;
+
+	if (as->Nactiveatomrt[nact] == N_MAX_OVERLAP) {
+	  sprintf(messageStr,
+		  "\n Too many overlapping transitions (> %d) "
+		  "for atom %s and nspect = %d\n",
+		  as->Nactiveatomrt[nact], atom->ID, nspect);
+	  Error(ERROR_LEVEL_2, routineName, messageStr);
+	}
+      }
+      free(line->lambda);
+      line->lambda = spectrumLocal->lambda + line->Nblue;
+    }
+  }
+
+  for (nact = 0;  nact < atmosLocal->Nactivemol;  nact++) {
+    molecule = atmosLocal->activemols[nact];
+
+    Nred = 0;
+    for (kr = 0;  kr < molecule->Nrt;  kr++) {
+      mrt = &molecule->mrt[kr];
+
+      /* --- Find the indices of the lowest (Nblue) and highest
+             wavelength of the current transition and allocate memory
+             for the wavelength integration weights -- -------------- */
+
+      Hunt(spectrumLocal->Nspect, spectrumLocal->lambda,
+	   mrt->lambda[0], &mrt->Nblue);
+      Hunt(spectrumLocal->Nspect, spectrumLocal->lambda,
+	   mrt->lambda[mrt->Nlambda-1], &Nred);
+      mrt->Nlambda = Nred - mrt->Nblue + 1;
+      
+      /* --- Repoint to proper position in wavelength array -- ------ */
+
+      free(mrt->lambda);
+      mrt->lambda = spectrumLocal->lambda + mrt->Nblue;
+
+      /* --- Store the transition number of the current transition
+             in the active molecular set (as) at each wavelength
+             covered by the current transition. Calculate wavelength
+             integration weights --                      ------------ */
+
+      for (nspect = mrt->Nblue;
+	   nspect < mrt->Nblue+mrt->Nlambda;  nspect++) {
+	as = &spectrumLocal->as[nspect];
+	nact = molecule->activeindex;
+	
+	as->mrt[nact][as->Nactivemolrt[nact]].type = mrt->type;
+	as->mrt[nact][as->Nactivemolrt[nact]].ptype.vrline = mrt;
+	as->Nactivemolrt[nact]++;
+
+	if (as->Nactivemolrt[nact] == N_MAX_OVERLAP) {
+	  sprintf(messageStr,
+		  "\n Too many overlapping transitions (> %d) "
+		  "for molecule %s and nspect = %d\n",
+		  as->Nactivemolrt[nact], molecule->ID, nspect);
+	  Error(ERROR_LEVEL_2, routineName, messageStr);
+	}
+      }
+    }
+  }
+
+  for (nspect = 0;  nspect < spectrumLocal->Nspect;  nspect++) {
+    as = &spectrumLocal->as[nspect];
+
+    /* --- For each wavelength in the spectrum gather the unique set of
+           lower and upper levels involved in active atomic transitions at that
+           wavelength. These are needed in the calculation of the cross
+           coupling coefficients in the approximate lambda iteration -- */
+
+    as->Nlower = (int *) malloc(atmosLocal->Nactiveatom * sizeof(int));
+    as->Nupper = (int *) malloc(atmosLocal->Nactiveatom * sizeof(int));
+
+    as->upper_levels =
+      (int **) malloc(atmosLocal->Nactiveatom * sizeof(int *));
+    as->lower_levels =
+      (int **) malloc(atmosLocal->Nactiveatom * sizeof(int *));
+
+    for (nact = 0;  nact < atmosLocal->Nactiveatom;  nact++) {
+      atom = atmosLocal->activeatoms[nact];
+
+      /* --- First, for each wavelength in the spectrum gather
+	 the unique set of lower levels of active transitions
+	 within each atomic model --               -------------- */
+
+      as->Nlower[nact] = 0;
+      as->Nupper[nact] = 0;
+      if (as->Nactiveatomrt[nact] > 0) {
+	as->lower_levels[nact] =
+	  (int *) malloc(as->Nactiveatomrt[nact] * sizeof(int));
+	as->upper_levels[nact] =
+	  (int *) malloc(as->Nactiveatomrt[nact] * sizeof(int));
+      } else {
+	as->lower_levels[nact] = NULL;
+	as->upper_levels[nact] = NULL;
+      }
+
+      for (n = 0;  n < as->Nactiveatomrt[nact];  n++) {
+	unique = TRUE;
+	switch (as->art[nact][n].type) {
+	case ATOMIC_LINE: 
+	  i = as->art[nact][n].ptype.line->i;
+	  j = as->art[nact][n].ptype.line->j;
+	  break;
+	case ATOMIC_CONTINUUM:
+	  i = as->art[nact][n].ptype.continuum->i;
+	  j = as->art[nact][n].ptype.continuum->j;
+	  break;
+	default:;
+	}
+	for (m = 0;  m < as->Nlower[nact];  m++) {
+	  if (i == as->lower_levels[nact][m]) {
+	    unique = FALSE;
+	    break;
+	  }
+	}
+	if (unique) {
+	  as->lower_levels[nact][as->Nlower[nact]] = i;
+	  as->Nlower[nact]++;
+	}
+ 
+	/* --- Then add the upper level if unique --   -------------- */
+
+	unique = TRUE;
+	for (m = 0;  m < as->Nupper[nact];  m++) {
+	  if (j == as->upper_levels[nact][m]) {
+	    unique = FALSE;
+	    break;
+	  }
+	}
+	if (unique) {
+	  as->upper_levels[nact][as->Nupper[nact]] = j;
+	  as->Nupper[nact]++;
+	}
+      }
+    }
+    /* --- Reallocate space for the atomic transition arrays -- ------- */
+
+    for (nact = 0;  nact < atmosLocal->Nactiveatom;  nact++) {
+      if (as->Nactiveatomrt[nact] > 0) {
+	as->art[nact] = (AtomicTransition *)
+	  realloc(as->art[nact],
+		  as->Nactiveatomrt[nact] * sizeof(AtomicTransition));
+
+	as->lower_levels[nact] =
+	  (int *) realloc(as->lower_levels[nact],
+			  as->Nlower[nact] * sizeof(int));
+	as->upper_levels[nact] =
+	  (int *) realloc(as->upper_levels[nact],
+			  as->Nupper[nact] * sizeof(int));
+      }
+    }
+    /* --- Reallocate space for the molecular transition arrays -- -- */
+
+    for (nact = 0;  nact < atmosLocal->Nactivemol;  nact++) {
+      if (as->Nactivemolrt[nact] > 0) {
+	as->mrt[nact] = (MolTransition *)
+	  realloc(as->mrt[nact],
+		  as->Nactivemolrt[nact] * sizeof(MolTransition));
+      }
+    }
+  }
+
+  // Init lambda info
+  
+  //fprintf(stderr,"bla %d\n", input.XRD );
+  get_unique_PRD_XRD_lines_ctx(ctx);
+  init_info_lambda_ctx(ctx);
+
+  
+  getCPU(2, TIME_POLL, "SortLambda");
+
+}
+/* ------- end ---------------------------- SortLambda_ctx.c ------------ */

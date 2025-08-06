@@ -41,7 +41,8 @@
 #include <stdlib.h>
 #include <math.h>
 
-#include "rh.h"
+// #include "rh.h"
+#include "rhf1d.h"
 #include "atom.h"
 #include "atmos.h"
 #include "constant.h"
@@ -154,6 +155,103 @@ void distribute_nH()
   if(atmos.nH != NULL) freeMatrix((void **) atmos.nH);
 }
 /* ------- end ---------------------------- distribute_nH.c --------- */
+
+
+/* ------- begin -------------------------- distribute_nH_ctx.c --------- */
+
+void distribute_nH_ctx(RHContext *ctx)
+{
+  const char routineName[] = "distribute_nH_ctx";
+  register int k, i;
+  Atmosphere *atmosLocal = &ctx->atmos;
+
+  char    config[4], *ptr;
+  int    *quantumNo, Nspace = atmosLocal->Nspace, iq;
+  double *g_total, g_i;
+
+  /* --- Redistribute the hydrogen levels for use in the background
+         opacity package.
+
+         Use the following conventions:
+
+         1 -- To save memory:
+              - let atmos.np point to atmos.H.n[atmos.H.Nlevel-1]
+              - let nH2 point to atmos.molecules[0].n;
+
+         2 -- atmos.nHtot represents the total number of hydrogen
+              atoms in neutral atoms, protons, H-, and H2 and H2+
+              molecules. So in general atmos.nHtot != atmos.H.ntotal.
+
+         3 -- In case of LTE (set by atmos.H_LTE, see keyword.input)
+              let atmos.H.n point to the LTE equivalents atmos.H.nstar.
+
+     --                                                -------------- */
+  if (atmosLocal->H_LTE) {
+    atmosLocal->H->NLTEpops = FALSE;
+    Error(MESSAGE, routineName,
+	  "\nUsing LTE hydrogen populations for background opacities\n\n");
+
+    /* --- To save memory space let atmos.H->n point to LTE populations
+           atmos.H->nstar --                           -------------- */
+
+    //    if (!atmos.H->active) atmos.H->n = atmos.H->nstar;
+
+
+    if (!atmosLocal->H->active)
+      atmosLocal->H->n = atmosLocal->H->nstar;
+    else {
+      //   for (i = 0;  i < atmos.H->Nlevel;  i++) {
+      //	for (k = 0;  k < Nspace;  k++)
+      //	  atmos.H->n[i][k] = atmos.H->nstar[i][k];
+      //  }
+    }
+    
+  } else {
+    atmosLocal->H->NLTEpops = TRUE;
+    if (!atmosLocal->H->active)
+      atmosLocal->H->n = matrix_double(atmosLocal->H->Nlevel, atmosLocal->Nspace);
+
+    /* --- Find principal quantum number from label --   ------------ */
+
+    quantumNo = (int *) malloc((atmosLocal->H->Nlevel - 1) * sizeof(int));
+    g_total   = (double *) calloc(atmosLocal->NHydr - 1, sizeof(double));
+
+    for (i = 0;  i < atmosLocal->H->Nlevel-1;  i++) {
+      sscanf(atmosLocal->H->label[i], "H I %s", config);
+      ptr = config;  while (isdigit(*ptr)) ptr++;  *ptr = ' ';
+      sscanf(config, "%d", &quantumNo[i]);
+
+      if (quantumNo[i] < atmosLocal->NHydr)
+	g_total[quantumNo[i] - 1] += atmosLocal->H->g[i];
+    }
+    /* --- Now redistribute atmosphere's Hydrogen populations over
+           the levels of atom H --                     -------------- */
+
+    for (i = 0;  i < atmosLocal->H->Nlevel-1;  i++) {
+      if (quantumNo[i] < atmosLocal->NHydr) {
+	iq  = quantumNo[i] - 1;
+	g_i = atmosLocal->H->g[i] / g_total[iq];
+	for (k = 0;  k < Nspace;  k++)
+	  atmosLocal->H->n[i][k] = g_i * atmosLocal->nH[iq][k];
+      } else {
+        sprintf(messageStr, "Too many hydrogen levels (level n = %d)\n"
+		" Background opacity additional levels set to zero%s",
+		quantumNo[i], (i == atmosLocal->H->Nlevel-2) ? "\n\n" : "");
+	Error(WARNING, routineName, messageStr);
+      }
+    }    
+    free(quantumNo);  free(g_total);
+
+    /* --- The protons come last --                    -------------- */
+
+    for (k = 0;  k < Nspace;  k++)
+      atmosLocal->H->n[atmosLocal->H->Nlevel-1][k] = atmosLocal->nH[atmosLocal->NHydr-1][k];
+  }
+  /* --- Free memory for atmospheric populations --    -------------- */
+
+  if(atmosLocal->nH != NULL) freeMatrix((void **) atmosLocal->nH);
+}
+/* ------- end ---------------------------- distribute_nH_ctx.c --------- */
 
 /* ------- begin -------------------------- Hydrogen_bf.c ----------- */
 

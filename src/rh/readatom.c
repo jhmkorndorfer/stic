@@ -30,7 +30,8 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "rh.h"
+// #include "rh.h"
+#include "rhf1d.h"
 #include "atom.h"
 #include "atmos.h"
 #include "spectrum.h"
@@ -599,6 +600,548 @@ void readAtom(Atom *atom, char *atom_file, bool_t active)
 } 
 /* ------- end ---------------------------- readAtom.c -------------- */
 
+
+
+void readAtom_ctx(Atom *atom, char *atom_file, bool_t active, RHContext *ctx)
+{
+  const char routineName[] = "readAtom_ctx";
+  register int kr, krp, kf, la, k, n;
+  Atmosphere *atmosLocal = &ctx->atmos;
+  InputData *inputLocal = &ctx->input;
+ //atmos
+  char    inputLine[MAX_LINE_SIZE], shapeStr[20], vdWstr[20], nuDepStr[20],
+          symmStr[20], optionStr[20], labelStr[MAX_LINE_SIZE];
+  bool_t  Debeye, exit_on_EOF, match;
+  int     i, j, Nlevel, Nrad, Nline, Ncont, Nfixed, 
+          Nspace = atmosLocal->Nspace,
+    Nread, Nrequired, checkPoint, L, nq, status, offset = 0;
+  unsigned int Nlamu;
+  double  f, C, lambda0, lambdamin, vtherm, S, Ju, Jl,
+    c_sum, waveratio, lambda_air;
+
+  AtomicLine *line, *line1;
+  AtomicContinuum *continuum;
+  FixedTransition *fixed;
+
+  getCPU(3, TIME_START, NULL);
+
+  C = 2*PI * (Q_ELECTRON/EPSILON_0) * (Q_ELECTRON/M_ELECTRON) / CLIGHT;
+
+  /* --- Open the data file for current model atom --  -------------- */
+
+  initAtom(atom);
+  atom->txt = readAtomFile(atom_file, '#', 1);
+  char **fp_input = atom->txt;
+  /*
+  if ((atom->fp_input = fopen(atom_file, "r")) == NULL) {
+    sprintf(messageStr, "Unable to open input file %s", atom_file);
+    Error(ERROR_LEVEL_2, routineName, atom_file);
+  } else {
+    sprintf(messageStr, " -- reading input file: %s %s",
+	    atom_file, (active) ? "(active)\n\n" : "(passive)\n");
+    Error(MESSAGE, routineName, messageStr);
+  }
+  */
+  
+  atom->active = active;
+
+  /* --- Read atom ID and convert to uppercase --     -------------- */
+ 
+  getLine2(fp_input[offset++], COMMENT_CHAR, inputLine, exit_on_EOF=TRUE);
+  Nread = sscanf(inputLine, "%2s", atom->ID);
+  checkNread(Nread, Nrequired=1, routineName, checkPoint=1);
+  for (n = 0;  n < (int) strlen(atom->ID);  n++)
+    atom->ID[n] = toupper(atom->ID[n]);
+  if (strlen(atom->ID) == 1) strcat(atom->ID, " ");
+ 
+  /* --- NOTE: atomic weight and abundance are read from the 
+         abundance input file (abundance.input by default).
+ 
+         When atom is part of the background the abundance and atomic
+         weight are taken from the list of elements in atmos.
+         See: abundance.c --                          -------------- */
+
+  match = FALSE;
+  for (n = 0;  n < atmosLocal->Nelem;  n++) {
+    if (strstr(atmosLocal->elements[n].ID, atom->ID)) {
+      if (atmosLocal->elements[n].abundance_set) {
+	atom->periodic_table = n;
+	atom->abundance = atmosLocal->elements[n].abund;
+	atom->weight    = atmosLocal->elements[n].weight;
+	match = TRUE;
+      }
+      break;
+    }
+  }
+  if (!match) {
+    sprintf(messageStr, " No matching element in periodic table for "
+	    " element %s in file %s, or abundance not specified",
+	    atom->ID, atom_file);
+    Error(ERROR_LEVEL_2, routineName, messageStr);
+  }
+
+  /* --- Get Number of levels, lines fixed transitions, and continua  */
+ 
+  getLine2(fp_input[offset++], COMMENT_CHAR, inputLine, exit_on_EOF=TRUE); 
+  Nread = sscanf(inputLine, "%d %d %d %d",
+		 &atom->Nlevel, &atom->Nline, &atom->Ncont, &atom->Nfixed);
+  checkNread(Nread, Nrequired=4, routineName, checkPoint=2);
+  Nlevel = atom->Nlevel;
+  Nline  = atom->Nline;  Ncont  = atom->Ncont;  Nrad = Nline + Ncont;
+  Nfixed = atom->Nfixed;
+
+  atom->E = (double *) malloc(Nlevel * sizeof(double));
+  atom->g = (double *) malloc(Nlevel * sizeof(double));
+  atom->stage = (int *)   malloc(Nlevel * sizeof(int));
+  atom->label = (char **) malloc(Nlevel * sizeof(char *));
+
+  /* --- Read in the level energies, statistical weights, labels,
+         and ionization stage --                       -------------- */
+
+  for (i = 0;  i < Nlevel;  i++) {
+    atom->label[i] = (char *) calloc((ATOM_LABEL_WIDTH+1), sizeof(char)); 
+    getLine2(fp_input[offset++], COMMENT_CHAR, inputLine , exit_on_EOF=TRUE); 
+    Nread = sscanf(inputLine, "%lf %lf '%20c' %d",
+      &atom->E[i], &atom->g[i], atom->label[i], &atom->stage[i]);
+    checkNread(Nread, Nrequired=4, routineName, checkPoint=3);
+
+    atom->E[i] *= (HPLANCK * CLIGHT) / CM_TO_M;
+  }
+  if (atom->stage[Nlevel-1] != (atom->stage[Nlevel-2] + 1)) {
+    sprintf(messageStr,
+	    "Atomic model %s in file %s does not have overlying continuum",
+	    atom->ID, atom_file);
+    Error(ERROR_LEVEL_2, routineName, messageStr);
+  }
+
+  if(atom->nstar != NULL) freeMatrix((void**)atom->nstar);
+  atom->nstar  = matrix_double(Nlevel, Nspace);
+  atom->ntotal = (double *) malloc(Nspace * sizeof(double));
+
+  for (k = 0;  k < Nspace;  k++)
+    atom->ntotal[k] = atom->abundance * atmosLocal->nHtot[k];
+
+  /* --- Ratio of thermal velocity and speed of light for use in
+         Doppler width for this particular atomic weight --  -------- */
+
+  if (atom->Nline > 0) {
+    atom->vbroad = (double *) malloc(Nspace * sizeof(double));
+    vtherm = 2.0*KBOLTZMANN/(AMU * atom->weight);
+    for (k = 0;  k < Nspace;  k++)
+      atom->vbroad[k] = sqrt(vtherm*atmosLocal->T[k] + SQ(atmosLocal->vturb[k]));
+  }
+
+  /* --- Check validity of input.isum for active atom -- ------------ */
+
+  if (atom->active  &&  (inputLocal->isum < -1  ||  inputLocal->isum >= Nlevel)) {
+    sprintf(messageStr, "Invalid value for ISUM = %d, Nlevel = %d",
+	    inputLocal->isum, Nlevel);
+    Error(ERROR_LEVEL_2, routineName, messageStr);
+  }
+
+  /* --- Go through the bound-bound transitions --     -------------- */
+
+  atom->Nprd = 0;
+  atom->line = (AtomicLine *) malloc(Nline * sizeof(AtomicLine));
+
+  for (kr = 0;  kr < Nline;  kr++) {
+    line = atom->line + kr;
+    initAtomicLine(line);
+    line->atom = atom;
+    line->isotope_frac = 1.0;
+
+    getLine2(fp_input[offset++], COMMENT_CHAR, inputLine, exit_on_EOF=TRUE);
+    Nread = sscanf(inputLine,
+		   "%d %d %lf %s %d %s %lf %lf %s %lf %lf %lf %lf %lf %lf %lf",
+		   &j, &i, &f, shapeStr, &line->Nlambda, symmStr,
+                   &line->qcore, &line->qwing, vdWstr,
+		   &line->cvdWaals[0], &line->cvdWaals[1],
+		   &line->cvdWaals[2], &line->cvdWaals[3],
+		   &line->Grad, &line->cStark, &line->g_Lande_eff);
+    checkNread(Nread, Nrequired=15, routineName, checkPoint=4);
+    if (Nread == 15) line->g_Lande_eff = 0.0;
+
+    line->j = MAX(i, j);  line->i = MIN(i, j);
+    i = line->i;
+    j = line->j;
+    
+    lambda0 = (HPLANCK * CLIGHT) / (atom->E[j] - atom->E[i]);
+    line->Aji = C / SQ(lambda0) * (atom->g[i] / atom->g[j]) * f;
+    line->Bji = CUBE(lambda0) / (2.0 * HPLANCK * CLIGHT) * line->Aji;
+    line->Bij = (atom->g[j] / atom->g[i]) * line->Bji;
+    line->lambda0 = lambda0 / NM_TO_M;
+
+    /* --- Parse the shape string --                   -------------- */
+
+    if (!strstr(shapeStr, "PRD") &&
+	!strstr(shapeStr, "VOIGT") &&
+	!strstr(shapeStr, "GAUSS") &&
+	!strstr(shapeStr, "COMPOSIT")) {
+      sprintf(messageStr, "Invalid value for line-shape string: %s",
+	      shapeStr);
+      Error(ERROR_LEVEL_2, routineName, messageStr);
+    }
+    if (strstr(shapeStr, "PRD") && inputLocal->PRD_NmaxIter > 0) {
+      atom->Nprd++;
+      line->PRD = TRUE;
+
+      if (inputLocal->limit_memory && atom->active) {
+        sprintf(messageStr,
+                "Cannot limit memory with PRD lines present in active atom");
+        Error(ERROR_LEVEL_2, routineName, messageStr);
+      }
+    }
+
+    if (strstr(shapeStr, "GAUSS")) line->Voigt = FALSE;
+
+    if (strstr(shapeStr, "COMPOSIT")) {
+      getLine2(fp_input[offset++], COMMENT_CHAR, inputLine, exit_on_EOF=TRUE);
+      Nread = sscanf(inputLine, "%d", &line->Ncomponent);
+      line->c_shift = (double *) malloc(line->Ncomponent * sizeof(double));
+      line->c_fraction =
+	(double *) malloc(line->Ncomponent * sizeof(double));
+
+      c_sum = 0.0;
+      for (n = 0;  n < line->Ncomponent;  n++) {
+	getLine2(fp_input[offset++], COMMENT_CHAR, inputLine, exit_on_EOF=TRUE);
+	Nread = sscanf(inputLine, "%lf %lf",
+		       &line->c_shift[n], &line->c_fraction[n]);
+	c_sum += line->c_fraction[n];
+      }
+      if (c_sum > (1.0 + MAX_ABUND_ERROR) ||
+	  c_sum < (1.0 - MAX_ABUND_ERROR)) {
+        vacuum_to_air(1, &line->lambda0, &lambda_air);
+	sprintf(messageStr,
+		"Line %d -> %d (%9.3f [nm]): \n"
+		" Component fractions do not add up to unity: %f",
+		line->j, line->i, lambda_air, c_sum);
+	Error(ERROR_LEVEL_2, routineName, messageStr);
+      } else {
+	vacuum_to_air(1, &line->lambda0, &lambda_air);
+	sprintf(messageStr,
+		" Line %d -> %d (%9.3f [nm]) has %d components\n",
+		line->j, line->i, lambda_air, line->Ncomponent);
+	Error(MESSAGE, routineName, messageStr);
+      }
+    } else {
+      line->Ncomponent = 1;
+
+      line->c_shift = (double *) malloc(sizeof(double));
+      line->c_shift[0] = 0.0;
+      line->c_fraction = (double *) malloc(sizeof(double));
+      line->c_fraction[0] = 1.0;
+    }
+    
+    if (strstr(vdWstr, "PARAMTR"))
+      line->vdWaals = RIDDER_RENSBERGEN;
+    else if (strstr(vdWstr, "UNSOLD")) {
+      line->vdWaals = UNSOLD;
+      line->cvdWaals[3] = line->cvdWaals[1] = 0.0;
+    }else if (strstr(vdWstr, "BARKLEM")) {
+      line->vdWaals = BARKLEM;
+      if (!getBarklemactivecross_ctx(line, ctx)) {
+	sprintf(messageStr,
+		"Line %3d -> %3d: cannot treat line "
+		"with Barklem type broadening. Using UNSOLD.", j, i);
+	Error(WARNING, routineName, messageStr);
+	line->vdWaals = UNSOLD;
+	line->cvdWaals[3] = line->cvdWaals[1] = 0.0;
+      }
+    }else {
+      sprintf(messageStr, "Invalid value for vd Waals string: %s", vdWstr);
+      Error(ERROR_LEVEL_2, routineName, messageStr);
+    }
+ 
+    line->symmetric   = (strstr(symmStr, "ASYMM")) ? FALSE : TRUE;
+    line->polarizable = FALSE;
+
+    if (atom->active) {
+
+      /* --- Allocate space for up- and downward radiative rates -- - */
+
+      line->Rij = (double *) malloc(Nspace * sizeof(double));
+      line->Rji = (double *) malloc(Nspace * sizeof(double));
+
+      /* --- Initialize the mutex lock for the radiative rates if there
+             is more than one thread --                -------------- */
+      // printf("%s: Nthreads PTHREADS WTFFFFFF = %d\n", routineName, inputLocal->Nthreads);
+      if (inputLocal->Nthreads > 1) {
+	if ((status = pthread_mutex_init(&line->rate_lock, NULL))) {
+	  sprintf(messageStr, "Unable to initialize mutex_lock, status = %d",
+		  status);
+	  Error(ERROR_LEVEL_2, routineName, messageStr);
+	}
+      }
+
+      if (atmosLocal->Stokes) {
+	if (line->g_Lande_eff != 0.0 ||
+	    (determinate(atom->label[i], atom->g[i], &nq, &S, &L, &Jl) &&
+	     determinate(atom->label[j], atom->g[j], &nq, &S, &L, &Ju) &&
+	     fabs(Ju - Jl) <= 1.0)) {
+
+	  /*
+          if (line->Ncomponent > 1) {
+	    sprintf(messageStr,
+		    "Line %3d -> %3d: cannot treat composite line "
+                    "with polarization", j, i);
+	    Error(ERROR_LEVEL_2, routineName, messageStr);
+	  }
+	  */
+	  
+	  line->polarizable = TRUE;
+	} else {
+	  sprintf(messageStr,
+		  " -- Treating line %3d -> %3d without polarization%s\n",
+		  j, i, (kr == Nline-1) ? "\n" : "");
+	  Error(MESSAGE, routineName, messageStr);
+	  line->polarizable = FALSE;
+	}
+      }
+    }
+  }
+  /* --- Go through the bound-free transitions --      -------------- */
+
+  atom->continuum =
+    (AtomicContinuum *) malloc(Ncont * sizeof(AtomicContinuum));
+  for (kr = 0;  kr < Ncont;  kr++) {
+    continuum = atom->continuum + kr;
+    initAtomicContinuum(continuum);
+    continuum->atom = atom;
+    continuum->isotope_frac = 1.0;
+
+    getLine2(fp_input[offset++], COMMENT_CHAR, inputLine, exit_on_EOF=TRUE); 
+    Nread = sscanf(inputLine, "%d %d %lf %d %s %lf",
+		   &j, &i, &continuum->alpha0, &continuum->Nlambda,
+		   nuDepStr, &lambdamin);
+    checkNread(Nread, Nrequired=6, routineName, checkPoint=5);
+
+    continuum->j = MAX(i, j);  continuum->i = MIN(i, j);
+    j = continuum->j;
+    i = continuum->i;
+
+    lambda0 = (HPLANCK * CLIGHT)/(atom->E[j] - atom->E[i]);
+    continuum->lambda0 = lambda0 / NM_TO_M;
+    continuum->lambda  =
+      (double *) malloc(continuum->Nlambda * sizeof(double));
+    continuum->alpha   =
+      (double *) malloc(continuum->Nlambda * sizeof(double));
+
+    if (strstr(nuDepStr, "EXPLICIT")) {
+      continuum->hydrogenic = FALSE;
+      for (la = continuum->Nlambda-1;  la >= 0;  la--) {
+	getLine2(fp_input[offset++], COMMENT_CHAR, inputLine, exit_on_EOF=TRUE);
+	Nread = sscanf(inputLine, "%lf %lf",
+		        &continuum->lambda[la], &continuum->alpha[la]);
+	checkNread(Nread, Nrequired=2, routineName, checkPoint=6);
+      }
+      for (la = 1;  la < continuum->Nlambda;  la++) {
+	if (continuum->lambda[la] < continuum->lambda[la-1]) {
+	  sprintf(messageStr, "Wavelength for continuum %d - %d"
+		  " is not monotonous", i, j);
+	  Error(ERROR_LEVEL_2, routineName, messageStr);
+	}
+      }
+    } else if (strstr(nuDepStr, "HYDROGENIC")) {
+      continuum->hydrogenic = TRUE;
+      if (lambdamin >= continuum->lambda0) {
+	sprintf(messageStr, "Minimum wavelength for continuum %d -> %d"
+		" is larger than continuum edge at: %f [nm]",
+		j, i, lambdamin);
+	Error(ERROR_LEVEL_2, routineName, messageStr);
+      }
+      getLambdaCont(continuum, lambdamin);
+    } else {
+      sprintf(messageStr,
+	      "Invalid value for wavelength dependence string: %s",
+	      nuDepStr);
+      Error(ERROR_LEVEL_2, routineName, messageStr);
+    }
+    if (atom->active) {
+
+      /* --- Allocate space for up- and downward radiative rates -- - */
+
+      continuum->Rij = (double *) malloc(Nspace * sizeof(double));
+      continuum->Rji = (double *) malloc(Nspace * sizeof(double));
+
+      /* --- Initialize the mutex lock for the radiative rates if there
+             is more than one thread --                -------------- */
+      // printf("%s: 968 line Nthreads PTHREADS WTFFFFFF = %d\n", routineName, inputLocal->Nthreads);
+      if (inputLocal->Nthreads > 1) {
+	if ((status = pthread_mutex_init(&continuum->rate_lock, NULL))) {
+	  sprintf(messageStr, "Unable to initialize mutex_lock, status = %d",
+		  status);
+	  Error(ERROR_LEVEL_2, routineName, messageStr);
+	}
+      }
+    }
+  }
+
+  /* --- Go through fixed transitions --               -------------- */
+
+  if (atom->Nfixed > 0) {
+    atom->ft = (FixedTransition *) malloc(Nfixed * sizeof(FixedTransition));
+
+    for (kf = 0;  kf < Nfixed;  kf++) {
+      fixed = atom->ft + kf;
+      fixed->atom = atom;
+
+      getLine2(fp_input[offset++], COMMENT_CHAR, inputLine, exit_on_EOF=TRUE); 
+      Nread = sscanf(inputLine, "%d %d %lf %lf %s",
+		     &j, &i, &fixed->strength,
+		     &fixed->Trad, optionStr);
+      checkNread(Nread, Nrequired=5, routineName, checkPoint=6);
+
+      fixed->j = MAX(i, j);  fixed->i = MIN(i, j);
+      j = fixed->j;
+      i = fixed->i;
+
+      for (kr = 0;  kr < Nline;  kr++) {
+	line = atom->line + kr;
+	if (line->i == i  &&  line->j == j) {
+	  sprintf(messageStr,
+		  "Fixed transition j = %d, i = %d duplicates active line",
+		  j, i);
+	  Error(ERROR_LEVEL_2, routineName, messageStr);
+	}
+      }
+      for (kr = 0;  kr < Ncont;  kr++) {
+	continuum = atom->continuum + kr;
+	if (continuum->i == i  &&  continuum->j == j) {
+	  sprintf(messageStr, "Fixed transition j = %d,  i = %d"
+		  " duplicates active continuum", j, i);
+	  Error(ERROR_LEVEL_2, routineName, messageStr);
+	}
+      }
+      lambda0 = (HPLANCK * CLIGHT) / (atom->E[j] - atom->E[i]);
+      fixed->lambda0 = lambda0 / NM_TO_M;
+
+      if (atom->stage[j] == atom->stage[i])
+	fixed->type = FIXED_LINE;
+      else 
+	fixed->type = FIXED_CONTINUUM;
+
+      if (strstr(optionStr, "TRAD_ATMOSPHERIC"))
+	fixed->option = TRAD_ATMOSPHERIC;
+      else if (strstr(optionStr, "TRAD_PHOTOSPHERIC"))
+	fixed->option = TRAD_PHOTOSPHERIC;
+      else if (strstr(optionStr, "TRAD_CHROMOSPHERIC"))
+	fixed->option = TRAD_CHROMOSPHERIC;
+      else {
+	sprintf(messageStr, "Invalid value for radiation temperature"
+		" option string: %s", optionStr);
+	Error(ERROR_LEVEL_2, routineName, messageStr);
+      }
+    }
+  }
+
+  if (atom->active) {
+
+      atom->popsoutFile = (char *) malloc(12 * sizeof(char));
+      sprintf(atom->popsoutFile, (atom->ID[1] == ' ') ?
+	      "pops.%.1s.out" : "pops.%.2s.out", atom->ID);
+
+    if (atom->Nprd > 0) {
+      if (atmosLocal->moving && !inputLocal->PRD_angle_dep) {
+	sprintf(messageStr,
+		"Using angle-averaged PRD in moving atmosphere for "
+                "atom %2s\n", atom->ID);
+	Error(WARNING, routineName, messageStr);
+      }
+      if (!atmosLocal->moving && inputLocal->PRD_angle_dep) {
+	sprintf(messageStr,
+		"Using angle-dependent PRD in static atmosphere for "
+                "atom %2s\n", atom->ID);
+	Error(WARNING, routineName, messageStr);
+      }
+      
+      /* --- Create the array to store cross redistribution lines - - */
+
+      if (inputLocal->XRD) {
+	for (kr = 0;  kr < Nline;  kr++) {
+	  line = &atom->line[kr];
+	  line->xrd = (AtomicLine **) malloc(Nline * sizeof(AtomicLine *)); 
+	  if (line->PRD) {
+	    for (krp = 0;  krp < Nline;  krp++) {
+	      if (atom->line[krp].PRD  &&
+		  line->j == atom->line[krp].j  && 
+		  line->i != atom->line[krp].i) {
+		line->xrd[line->Nxrd] = &atom->line[krp];
+		line->Nxrd++;
+                /* --- Make sure wavelength quadratures match in
+		       case of cross-redistribution -- -------------- */
+
+		if (krp > kr) {
+		  waveratio = atom->line[krp].lambda0 / line->lambda0;
+		  atom->line[krp].qwing = waveratio * line->qwing;
+		}
+	      }
+	    }
+	    line->xrd =
+	      realloc (line->xrd, line->Nxrd * sizeof(AtomicLine *));
+
+	    sprintf(messageStr,
+		    "Found %d subordinate PRD lines for line %d-%d of "
+		    "atom %2s\n", line->Nxrd, line->j, line->i, atom->ID);
+	    Error(MESSAGE, routineName, messageStr);
+	  }
+	}
+      }
+    }
+    /* --- Get wavelength quadratures and allocate space
+           for populations --                          -------------- */
+
+    for (kr = 0;  kr < Nline;  kr++) getLambda(atom->line + kr);
+    atom->n = matrix_double(Nlevel, Nspace);
+
+    /* --- Allocate space for thread dependent quantities -- -------- */
+
+    atom->rhth = (rhthread *) malloc(input.Nthreads * sizeof(rhthread));
+
+    /* --- Store the offset to allow pointing back to the start of the
+           collisional data in the atomic input file, and allocate
+           space for rate coefficients --               ------------- */
+
+    atom->offset_coll = (long)offset;//ftell(atom->fp_input);
+    atom->C = matrix_double(SQ(Nlevel), Nspace);
+
+  } else {
+
+    if (atom->popsinFile  &&
+	atom->initial_solution == OLD_POPULATIONS) {
+ 
+      atom->NLTEpops = TRUE;
+
+      /* --- Allocate memory for Non-LTE populations -- ------------- */
+
+      atom->n = matrix_double(atom->Nlevel, atmosLocal->Nspace);
+      readPopulations_ctx(atom, ctx);
+
+      sprintf(messageStr,
+	  " --- Read input file: %s with NLTE populations for atom %s\n",
+	      atom->popsinFile, atom->ID);
+      Error(MESSAGE, routineName, messageStr);
+    } else {
+      atom->NLTEpops = FALSE;
+
+      /* --- Save some memory by aliasing n to nstar if passive -- -- */
+
+      atom->n = atom->nstar;
+    }
+    /* --- For the inactive atom we can close the input file here. For
+           the active atoms we need to read the collisional data after
+           the LTE populations have been calculated (after the electron
+           density has been calculated if necessary). This is done
+           in routine SetLTEQuantities in ltepops.c -- -------------- */
+
+    //fclose(atom->fp_input);
+  }
+
+  sprintf(labelStr, "Read %s %2s",
+	  (atom->active) ? "Active" : "Atom", atom->ID);
+  getCPU(3, TIME_POLL, labelStr);
+} 
+
+
 /* ------- begin -------------------------- initAtom.c -------------- */
 
 void initAtom(Atom *atom)
@@ -904,6 +1447,143 @@ void readAtomicModels(void)
 }
 
 /* ------- end ---------------------------- readAtomicModels.c ------ */
+
+/* ------- begin -------------------------- readAtomicModels_ctx -------------- */
+
+void readAtomicModels_ctx(RHContext *ctx)
+{
+  const char routineName[] = "readAtomicModels_ctx";
+  register int n, m, i;
+
+  char    filename[MAX_LINE_SIZE],
+          actionKey[MAX_KEYWORD_SIZE], popsKey[MAX_KEYWORD_SIZE],
+          popsFile[MAX_LINE_SIZE], inputLine[MAX_LINE_SIZE], *atomID;
+  bool_t  active, exit_on_EOF;
+  int     Nread, Nrequired, checkPoint;
+  FILE   *fp_atoms;
+  Atom   *atom;
+  Element *element;
+
+  Atmosphere *atmosLocal = &ctx->atmos;
+  InputData  *inputLocal = &ctx->input;
+
+
+
+  getCPU(2, TIME_START, NULL);
+
+  /* --- Open input file for atomic models --          -------------- */
+
+  if ((fp_atoms = fopen(inputLocal->atoms_input, "r")) == NULL) {
+    sprintf(messageStr, "Unable to open input file %s",
+	    inputLocal->atoms_input);
+    Error(ERROR_LEVEL_2, routineName, messageStr);
+  }
+  /* --- Get the number of atomic models to be read -- -------------- */
+
+  getLine(fp_atoms, COMMENT_CHAR, inputLine, exit_on_EOF=TRUE);
+  Nread = sscanf(inputLine, "%d", &atmosLocal->Natom);
+  checkNread(Nread, Nrequired=1, routineName, checkPoint=1);
+
+  atmosLocal->atoms = (Atom *) malloc(atmosLocal->Natom * sizeof(Atom));
+
+  /* --- Read atomic data for the various model atoms -- ------------ */
+  printf("Number of atoms to read: %d\n", atmosLocal->Natom);
+  for (n = 0;  n < atmosLocal->Natom;  n++) {
+
+    getLine(fp_atoms, COMMENT_CHAR, inputLine, exit_on_EOF=TRUE);
+    Nread = sscanf(inputLine, "%s %s %s %s ",
+		   filename, actionKey, popsKey, popsFile);
+    checkNread(Nread, Nrequired=3, routineName, checkPoint=2);
+
+    atomID = getAtomID(filename);
+    if (n ==  0  &&  !strstr(atomID, "H ")) {
+      sprintf(messageStr, "First atomic model is not hydrogen: %s",
+	      atomID);
+      Error(ERROR_LEVEL_2, routineName, messageStr);
+    }
+    /* --- Check for duplicate atomic ID --            -------------- */
+
+    for (m = 0;  m < n;  m++) {
+      if (strstr(atomID, atmosLocal->atoms[m].ID)) {
+	sprintf(messageStr,
+		"Aready read atomic model for element %s\n", atomID);
+	Error(ERROR_LEVEL_2, routineName, messageStr);
+      }
+    }
+    /* --- Set active flag. Active set to TRUE means atom will be
+           treated in Non-LTE --                       -------------- */
+
+    atom = &atmosLocal->atoms[n];
+   printf("[%d] Calling readAtom_ctx on file: %s\n", n, filename);
+    
+
+    // lets check if atom is NULL and print something if it is
+    // readAtom(atom, filename,
+	  //    active=(strstr(actionKey, "ACTIVE") ? TRUE : FALSE));
+    readAtom_ctx(atom, filename, active=(strstr(actionKey, "ACTIVE") ? TRUE : FALSE), ctx);
+
+    printf("Read successfully atom %s\n", filename);
+ 
+    /* --- Set flag for initial soltion --             -------------- */
+
+    if (strstr(popsKey, "OLD_POPULATIONS")) {
+      atom->initial_solution = OLD_POPULATIONS;
+    } else if (strstr(popsKey, "LTE_POPULATIONS")) {
+      atom->initial_solution = LTE_POPULATIONS;
+    } else if (strstr(popsKey, "ZERO_RADIATION")) {
+      atom->initial_solution = ZERO_RADIATION;
+    }else if(strstr(popsKey, "PESC")){
+      atom->initial_solution = PESC;
+    }
+    /* --- If popsKey is not recognized --             -------------- */
+
+    if (atom->initial_solution == UNKNOWN) {
+      sprintf(messageStr,
+	      "Unknown initial solution specified for atom: %s\n",
+	      atomID);
+      Error(ERROR_LEVEL_2, routineName, messageStr);
+    } 
+
+    /* --- If input.startJ == OLD_J then enforce OLD_POPULATIONS -- */
+
+    if (atom->active  &&  inputLocal->startJ == OLD_J)
+      atom->initial_solution = OLD_POPULATIONS;
+
+    /* --- Copy filename for old population numbers -- -------------- */
+
+    if (atom->initial_solution == OLD_POPULATIONS) {
+      if (Nread < 4) {
+	sprintf(messageStr,
+		"No file with OLD_POPULATIONS specified for atom: %s\n",
+		atomID);
+	Error(ERROR_LEVEL_2, routineName, messageStr);
+      }
+      atom->popsinFile = (char *) malloc((strlen(popsFile) + 1) * sizeof(char));
+      strcpy(atom->popsinFile, popsFile);
+    }
+  }
+
+  printf("IIII STILL ALIVEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE\n");
+  fclose(fp_atoms);   
+
+  /* --- Create an alias to the hydrogen atom structure -- ---------- */
+
+  atmosLocal->H = &atmosLocal->atoms[0];
+
+  /* --- Store pointers to models in element structures -- ---------- */
+
+  for (n = 0;  n < atmosLocal->Natom;  n++)
+    atmosLocal->elements[atmosLocal->atoms[n].periodic_table].model = &atmosLocal->atoms[n];
+
+  /* --- Redistribute the hydrogen populations read in with the
+         atmosphere over the atmospheric Hydrogen model -- ---------- */
+
+  distribute_nH_ctx(ctx);
+  getCPU(2, TIME_POLL, "Read atomic input");
+}
+
+/* ------- end ---------------------------- readAtom.c -------------- */
+
 
 /* ------- begin -------------------------- getAtomID.c ------------- */
 

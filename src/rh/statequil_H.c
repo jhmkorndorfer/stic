@@ -23,14 +23,15 @@
 #include <stdlib.h>
 #include <math.h>
 
-#include "rh.h"
+// #include "rh.h"
+#include "rh_1d/rhf1d.h"
 #include "atom.h"
 #include "atmos.h"
 #include "inputs.h"
 #include "accelerate.h"
 #include "statistics.h"
 #include "error.h"
-#include "rh_1d/rhf1d.h"
+// #include "rh_1d/rhf1d.h"
 #include "inputs.h"
 #include "constant.h"
 #include <string.h>

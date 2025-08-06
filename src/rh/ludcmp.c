@@ -18,9 +18,10 @@
 #include <math.h>
 #include <string.h>
 
-#include "rh.h"
-#include "error.h"
+// #include "rh.h"
 #include "rh_1d/rhf1d.h"
+#include "error.h"
+// #include "rh_1d/rhf1d.h"
 
 
 /* --- Function prototypes --                          -------------- */

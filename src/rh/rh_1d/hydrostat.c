@@ -11,7 +11,8 @@
  
 #include <stdlib.h>
 
-#include "rh.h"
+// #include "rh.h"
+#include "rhf1d.h"
 #include "atom.h"
 #include "atmos.h"
 #include "geometry.h"
@@ -19,7 +20,7 @@
 #include "constant.h"
 #include "accelerate.h"
 #include "error.h"
-#include "rhf1d.h"
+
 #include "solveLinearCXX.h"
 
 

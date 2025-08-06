@@ -7,7 +7,8 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
-#include "rh.h"
+// #include "rh.h"
+#include "rhf1d.h"
 #include "atom.h"
 #include "atmos.h"
 #include "geometry.h"
@@ -18,7 +19,7 @@
 #include "inputs.h"
 #include "statistics.h"
 #include "xdr.h"
-#include "rhf1d.h"
+
 
 
 #define MULTI_COMMENT_CHAR  "*"

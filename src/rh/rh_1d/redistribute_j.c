@@ -12,14 +12,15 @@
 #include <stdlib.h>
 #include <math.h>
 
-#include "rh.h"
+// #include "rh.h"
+#include "rhf1d.h"
 #include "atom.h"
 #include "atmos.h"
 #include "spectrum.h"
 #include "accelerate.h"
 #include "error.h"
 #include "inputs.h"
-#include "rhf1d.h"
+
 
 /* --- Function prototypes --                          -------------- */
 double MaxChange_j(struct Ng *Ngs, char *text, bool_t quiet);

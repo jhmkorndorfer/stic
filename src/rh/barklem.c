@@ -29,7 +29,8 @@
 #include <string.h>
 #include <math.h>
 
-#include "rh.h"
+// #include "rh.h"
+#include "rhf1d.h"
 #include "atom.h"
 #include "atmos.h"
 #include "constant.h"
@@ -369,3 +370,111 @@ bool_t getBarklemactivecross(AtomicLine *line)
   return TRUE;
 }
 /* ------- end ---------------------------- getBarklemactivecross.c -- */
+
+/* ------- begin -------------------------- getBarklemactivecross_ctx.c - */
+
+bool_t getBarklemactivecross_ctx(AtomicLine *line, RHContext *ctx)
+{
+  bool_t determined = TRUE, useBarklem = FALSE;
+  int index, Ll, Lu, nq, i, j, ic;
+  double Sl, Su, Jl, Ju;
+  double Z, neff1, neff2, findex1, findex2, reducedmass, meanvelocity,
+         crossmean, E_Rydberg, deltaEi, deltaEj;
+  Atom *atom;
+  Barklemstruct bs;
+
+  Atmosphere *atmosLocal = &ctx->atmos;
+  InputData *inputLocal = &ctx->input;
+  
+  atom = line->atom;
+  j = line->j;
+  i = line->i;
+
+  /* --- 
+     JdlCR: Interpolate the tables only if sigma is smaller than 20 
+     otherwise assume that we are already giving Barklem cross-sections
+     --- */
+  
+  if(line->cvdWaals[0] < 20.0){ 
+      
+    
+    /* --- ABO tabulations are only valid for neutral atoms  -- -------- */
+    
+    if (atom->stage[i] > 0) return FALSE;
+    
+    /* --- Get the quantum numbers for orbital angular momentum -- ---- */
+    
+    determined &= determinate_abo(atom->label[i], &Ll);
+    determined &= determinate_abo(atom->label[j], &Lu);
+    
+    /* --- See if one of the Barklem cases applies --    -------------- */
+    
+    if (determined) {
+      if ((Ll == S_ORBIT && Lu == P_ORBIT) ||
+	  (Ll == P_ORBIT && Lu == S_ORBIT)) {
+	useBarklem = readBarklemTable(SP, &bs);
+      } else if ((Ll == P_ORBIT && Lu == D_ORBIT) ||
+		 (Ll == D_ORBIT && Lu == P_ORBIT)) {
+	useBarklem = readBarklemTable(PD, &bs);
+      } else if ((Ll == D_ORBIT && Lu == F_ORBIT) ||
+		 (Ll == F_ORBIT && Lu == D_ORBIT)) {
+	useBarklem = readBarklemTable(DF, &bs);
+      }
+    }
+
+    
+    if (!determined || !useBarklem) return FALSE;
+
+    
+    /* --- Determine the index of the appropriate continuum level -- -- */
+    
+    Z = atom->stage[j] + 1;
+    for (ic = j + 1;  atom->stage[ic] < atom->stage[j]+1;  ic++);
+    
+    deltaEi   = atom->E[ic] - atom->E[i];
+    deltaEj   = atom->E[ic] - atom->E[j];
+    E_Rydberg = E_RYDBERG / (1.0 + M_ELECTRON / (atom->weight * AMU));
+    
+    neff1 = Z * sqrt(E_Rydberg / deltaEi);
+    neff2 = Z * sqrt(E_Rydberg / deltaEj);
+    
+    if (Ll > Lu) SWAPDOUBLE(neff1, neff2);
+    
+    /* --- Interpolate according to effective principal quantum number  */
+    
+    if (neff1 < bs.neff1[0] || neff1 > bs.neff1[bs.N1-1])
+      return FALSE;
+    Locate(bs.N1, bs.neff1, neff1, &index);
+    findex1 =
+      (double) index + (neff1 - bs.neff1[index]) / BARKLEM_DELTA_NEFF;
+    
+    if (neff2 < bs.neff2[0] || neff2 > bs.neff2[bs.N2-1])
+      return FALSE;
+    Locate(bs.N2, bs.neff2, neff2, &index);
+    findex2 =
+      (double) index + (neff2 - bs.neff2[index]) / BARKLEM_DELTA_NEFF;
+    
+    /* --- Find interpolation in table --                -------------- */
+    
+    line->cvdWaals[0] = cubeconvol(bs.N2, bs.N1,
+				   bs.cross[0], findex2, findex1);
+    line->cvdWaals[1] = cubeconvol(bs.N2, bs.N1,
+				   bs.alpha[0], findex2, findex1);
+
+  }
+
+  reducedmass  = AMU / (1.0/atmosLocal->atoms[0].weight + 1.0/atom->weight);
+  meanvelocity = sqrt(8.0 * KBOLTZMANN / (PI * reducedmass));
+  crossmean    = SQ(RBOHR) * pow(meanvelocity / 1.0E4, -line->cvdWaals[1]);
+  
+  line->cvdWaals[0] *= 2.0 * pow(4.0/PI, line->cvdWaals[1]/2.0) * 
+    exp(gammln((4.0 - line->cvdWaals[1])/2.0)) * meanvelocity * crossmean;  
+  
+  /* --- Use UNSOLD for the contribution of Helium atoms -- ---------- */
+  
+  line->cvdWaals[2] = 1.0;
+  line->cvdWaals[3] = 0.0;
+
+  return TRUE;
+}
+/* ------- end ---------------------------- getBarklemactivecross_ctx.c -- */

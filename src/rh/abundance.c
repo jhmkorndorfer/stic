@@ -50,7 +50,8 @@
 #include <string.h>
 #include <math.h>
 
-#include "rh.h"
+// #include "rh.h"
+#include "rhf1d.h"
 #include "atom.h"
 #include "atmos.h"
 #include "constant.h"
@@ -58,6 +59,7 @@
 #include "inputs.h"
 #include "xdr.h"
 #include "atomweights.h"
+
 
 
 #define COMMENT_CHAR           "#"
@@ -216,6 +218,155 @@ void readAbundance(Atmosphere *atmos)
   atmos->totalAbund = totalAbund;
   atmos->wght_per_H = avgWeight;
   atmos->avgMolWght = avgWeight / totalAbund;
+
+  xdr_destroy(&xdrs);
+  fclose(fp_pf);
+}
+
+void readAbundance_ctx(RHContext *ctx)
+{
+  const char routineName[] = "readAbundance";
+  register int n, k, i;
+
+  char   ID[ATOM_ID_WIDTH+1], line[MAX_LINE_SIZE], *match = NULL;
+  bool_t result = TRUE, DEX = FALSE, exit_on_EOF;
+  int    Nread, pti;
+  double abund, totalAbund, avgWeight, metallicity;
+  Element *element;
+  FILE  *fp_abund, *fp_pf;
+  XDR    xdrs;
+
+  Atmosphere *atmosLocal = &ctx->atmos;
+  InputData *inputLocal = &ctx->input;
+
+  atmosLocal->Nelem    = sizeof(atomweight) / sizeof(struct AtomWeight);
+  atmosLocal->elements = (Element *) malloc(atmosLocal->Nelem * sizeof(Element));
+  for (n = 0;  n < atmosLocal->Nelem;  n++) {
+    element = &atmosLocal->elements[n];
+    strcpy(element->ID, atomweight[n].ID);
+    element->abundance_set = FALSE;
+    element->abund = 0.0;
+    element->mol_index = NULL;
+    element->Nstage = element->Nmolecule = 0;
+    element->weight = atomweight[n].weight;
+    element->ionpot = NULL;
+    element->pf = NULL;
+    element->n = NULL;
+    element->model = NULL;
+  }
+
+  if ((fp_abund = fopen(inputLocal->abund_input, "r")) == NULL) {
+    sprintf(messageStr,
+	    "Unable to open input file %s", inputLocal->abund_input);
+    Error(ERROR_LEVEL_2, routineName, messageStr);
+  }
+  /* --- Read abundances from file --                  -------------- */
+
+  while (getLine(fp_abund, COMMENT_CHAR, line, exit_on_EOF=FALSE) != EOF) {
+    if ((Nread = sscanf(line, "%s %lf", ID, &abund)) != 2) {
+      sprintf(messageStr, "Unable to read input file %s",
+	      inputLocal->abund_input);
+      Error(ERROR_LEVEL_2, routineName, messageStr);
+    }
+    UpperCase(ID);
+    if (strlen(ID) == 1) strcat(ID, " ");
+
+    match = NULL;
+    for (n = 0;  n < atmosLocal->Nelem;  n++) {
+      if ((match = strstr(atmosLocal->elements[n].ID, ID))) {
+	atmosLocal->elements[n].abund = abund;
+	if (strstr(ID, "H ")  &&  (abund == 12.0)) DEX = TRUE;
+        atmosLocal->elements[n].abundance_set = TRUE;
+	break;
+      }
+    }
+    if (!match) {
+      sprintf(messageStr, "Abundance for element %s not used", ID);
+      Error(WARNING, routineName, messageStr);
+    }
+  }
+  fclose(fp_abund);
+
+  /* --- Multiply with metallicity factor if different from 1.0 -- -- */
+
+  metallicity = POW10(inputLocal->metallicity);
+  if (inputLocal->metallicity != 0.0) {
+    sprintf(messageStr,
+	    "\nMultiplying metal abundances by metallicity of %5.3f\n\n",
+	    metallicity);
+    Error(MESSAGE, routineName, messageStr);
+  }
+  /* --- Open the data file with partition functions and first read the 
+         temperature interpolation grid --             -------------- */
+
+  if ((fp_pf = fopen(inputLocal->pfData, "r")) == NULL) {
+    sprintf(messageStr,
+	    "Unable to open input file %s for partition function data",
+	    inputLocal->pfData);
+    Error(ERROR_LEVEL_2, routineName, messageStr);
+  }
+  xdrstdio_create(&xdrs, fp_pf, XDR_DECODE);
+
+  result &= xdr_int(&xdrs, &atmosLocal->Npf);
+  atmosLocal->Tpf = (double *) malloc(atmosLocal->Npf * sizeof(double));
+  result &= xdr_vector(&xdrs, (char *) atmosLocal->Tpf, atmosLocal->Npf,
+		       sizeof(double), (xdrproc_t) xdr_double);
+
+  totalAbund = avgWeight = 0.0;
+  for (n = 0;  n < atmosLocal->Nelem;  n++) {
+    element = atmosLocal->elements + n;
+
+    if (!element->abundance_set) {
+      sprintf(messageStr, "Found no abundance for element %s",
+	      element->ID);
+      Error(WARNING, routineName, messageStr);
+    } else {
+
+      /* --- Convert if abundances were given on logarithmic scale -- */
+
+      if (DEX) element->abund = POW10(element->abund - 12.0);
+
+      /* --- Apply metallicity factor to elements other than hydrogen */
+
+      if (metallicity != 1.0  &&  !strstr(element->ID, "H "))
+	element->abund *= metallicity;
+
+      totalAbund += element->abund;
+      avgWeight  += element->abund * element->weight;
+    }
+    /* --- Read partition function information for all elements
+           to prevent complications in the PF input file processing - */
+
+    result &= xdr_int(&xdrs, &pti);
+    result &= xdr_int(&xdrs, &element->Nstage);
+    element->pf = matrix_double(element->Nstage, atmosLocal->Npf);
+    element->ionpot =
+      (double *) malloc(element->Nstage * sizeof(double));
+
+    result &= xdr_vector(&xdrs, (char *) element->pf[0],
+			 element->Nstage*atmosLocal->Npf,
+			 sizeof(double), (xdrproc_t) xdr_double);
+    result &= xdr_vector(&xdrs, (char *) element->ionpot,
+			 element->Nstage,
+			 sizeof(double), (xdrproc_t) xdr_double);
+
+    
+      /* --- Store the logarithmic values of the partition functions
+	     to facilitate logarithmic interpolation in temperature
+	     for the calculation of population numbers. Do this only
+             if the abundance of this element is actually set -- ---- */
+
+    if (element->abundance_set) {
+      for (i = 0;  i < element->Nstage;  i++) {
+	element->ionpot[i] *= (HPLANCK * CLIGHT) / CM_TO_M;
+	for (k = 0;  k < atmosLocal->Npf;  k++)
+	  element->pf[i][k] = log(element->pf[i][k]);
+      }
+    }
+  }
+  atmosLocal->totalAbund = totalAbund;
+  atmosLocal->wght_per_H = avgWeight;
+  atmosLocal->avgMolWght = avgWeight / totalAbund;
 
   xdr_destroy(&xdrs);
   fclose(fp_pf);

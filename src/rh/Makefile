@@ -10,6 +10,9 @@ CFLAGS   += -fopenmp
 CXXFLAGS += -fopenmp
 FFLAGS   += -fopenmp
 
+CFLAGS += -I../rh  # <--- ADD THIS if atom.h is in ../rh/
+CFLAGS += -I../rh/rh_1d  # <--- if some headers are in rh_1d/
+
 # Include paths
 RHINC = -I../ -I../eigen3
 CPPFLAGS += $(RHINC)

@@ -12,7 +12,8 @@
 #include <stdlib.h> 
 #include <string.h>
 
-#include "rh.h"
+// #include "rh.h"
+#include "rhf1d.h"
 #include "atom.h"
 #include "atmos.h"
 #include "error.h"
@@ -140,6 +141,43 @@ void readPopulations(Atom *atom)
   fclose(fp_in);
 }
 /* ------- end ---------------------------- readPopulations.c ------- */
+
+/* ------- begin -------------------------- readPopulations_ctx.c ------- */
+
+void readPopulations_ctx(Atom *atom, RHContext *ctx)
+{
+  const char routineName[] = "readPopulations";
+  
+  Atmosphere *atmosLocal = &ctx->atmos;
+  InputData *inputLocal = &ctx->input;
+
+  FILE *fp_in;
+  XDR   xdrs;
+
+  /* --- Read populations from file.
+
+   Note: readPopulations only reads the true populations and not
+         the LTE populations. To this effect it passes a NULL pointer
+         to xdr_populations as its last argument.
+         --                                            -------------- */
+
+  if ((fp_in = fopen(atom->popsinFile, "r")) == NULL) {
+    sprintf(messageStr, "Unable to open input file %s",
+	    atom->popsinFile);
+    Error(ERROR_LEVEL_2, routineName, messageStr);
+  }
+  xdrstdio_create(&xdrs, fp_in, XDR_DECODE);
+
+  if (!xdr_populations(&xdrs, atmosLocal->ID, atom->Nlevel, atmosLocal->Nspace,
+		       atom->n[0], atom->nstar[0])) {
+    sprintf(messageStr, "Unable to read from input file %s",
+	    atom->popsinFile);
+    Error(ERROR_LEVEL_2, routineName, messageStr);
+  }
+  xdr_destroy(&xdrs);
+  fclose(fp_in);
+}
+/* ------- end ---------------------------- readPopulations_ctx.c ------- */
 
 /* ------- begin -------------------------- writeMolPops.c ---------- */
 

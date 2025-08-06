@@ -28,13 +28,14 @@
 #include <string.h>
 #include <stdlib.h>
 
-#include "rh.h"
+// #include "rh.h"
+#include "rhf1d.h"
 #include "error.h"
 #include "atom.h"
 #include "atmos.h"
 #include "geometry.h"
 #include "spectrum.h"
-#include "rhf1d.h"
+
 //#include "scl_opac.h"
 
 /* --- Function prototypes --                          -------------- */

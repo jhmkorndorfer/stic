@@ -12,7 +12,8 @@
 #include <stdlib.h>
 #include <float.h>
 
-#include "rh.h"
+// #include "rh.h"
+#include "rhf1d.h"
 #include "atom.h"
 #include "atmos.h"
 #include "constant.h"
@@ -213,6 +214,63 @@ void LTEmolecule(Molecule *molecule)
   getCPU(4, TIME_POLL, labelStr);
 }
 /* ------- end ---------------------------- LTEmolecule.c ----------- */
+
+/* ------- begin -------------------------- LTEmolecule_ctx.c ----------- */
+
+void LTEmolecule_ctx(Molecule *molecule, RHContext *ctx)
+{
+  /* --- Calculate partition functions for each molecular vibrational
+         state v of the molecule. LTE populations are then given by:
+
+         nv^*[k] = molecule->n * pfv[v][k] / pf[k].
+
+   Note: The actual LTE populations are calculated (in initSolution)
+         only after chemical equilibrium has been established.
+         --                                            -------------- */
+
+  register int k, v, J, kr;
+
+  char    labelStr[MAX_LINE_SIZE];
+  double  kT, gJ, **E;
+  MolecularLine *mrt;
+  Atmosphere *atmosLocal = &ctx->atmos;
+
+  if (!molecule->active) {
+    sprintf(messageStr, "Molecule must be active: %s\n", molecule->ID);
+    Error(ERROR_LEVEL_2, "LTEmolecule_ctx", messageStr);
+  }
+  /* --- Fill energy matrix --                         -------------- */
+
+  E = matrix_double(molecule->Nv, molecule->NJ);
+  for (kr = 0;  kr < molecule->Nrt;  kr++) {
+    mrt = molecule->mrt + kr;
+
+    E[mrt->vi][(int) (mrt->gi - 1)/2] = mrt->Ei;
+    E[mrt->vj][(int) (mrt->gj - 1)/2] = mrt->Ej;
+  }
+
+  for (k = 0;  k < atmosLocal->Nspace;  k++)
+    molecule->pf[k] = 0.0;
+
+  for (v = 0;  v < molecule->Nv;  v++) {
+    for (J = 0;  J < molecule->NJ;  J++) {
+      gJ = 2*J + 1;
+      for (k = 0;  k < atmosLocal->Nspace;  k++)
+	molecule->pfv[v][k] +=
+	  gJ * exp(-E[v][J] / (KBOLTZMANN * atmosLocal->T[k]));
+    }
+    /*  --- Also store the total partition function here -- --------- */
+
+    for (k = 0;  k < atmosLocal->Nspace;  k++)
+      molecule->pf[k] += molecule->pfv[v][k];
+  }
+
+  freeMatrix((void **) E);
+
+  sprintf(labelStr, "LTEpops %3s", molecule->ID);
+  getCPU(4, TIME_POLL, labelStr);
+}
+/* ------- end ---------------------------- LTEmolecule_ctx.c ----------- */
 
 /* ------- begin -------------------------- SetLTEQuantities.c ------ */
 

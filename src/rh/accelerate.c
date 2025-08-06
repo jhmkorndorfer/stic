@@ -12,16 +12,17 @@
  Also: L. Auer 1987, in "Numerical Radiative Transfer",
          ed. W. Kalkofen, pp. 101-109
        --                                              -------------- */
-
+#include "rh_1d/rhf1d.h"
 #include <stdlib.h>
 #include <math.h>
 #include <stdio.h>
 
-#include "rh.h"
+// #include "rh.h"
+
 #include "accelerate.h"
 #include "error.h"
 #include "statistics.h"
-#include "rh_1d/rhf1d.h"
+
 #include "solveLinearCXX.h"
 
 /* --- Function prototypes --                          -------------- */

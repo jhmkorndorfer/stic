@@ -22,7 +22,8 @@
 #include <stdlib.h>
 #include <math.h>
 
-#include "rh.h"
+// #include "rh.h"
+#include "rhf1d.h"
 #include "atom.h"
 #include "atmos.h"
 #include "spectrum.h"
@@ -30,7 +31,7 @@
 #include "constant.h"
 #include "error.h"
 #include "statistics.h"
-#include "rhf1d.h"
+
 
 #define TENSION  8.0
 

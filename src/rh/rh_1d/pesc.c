@@ -21,7 +21,8 @@
 #include <unistd.h>
 #include <stdbool.h>
 
-#include "rh.h"
+// #include "rh.h"
+#include "rhf1d.h"
 #include "atom.h"
 #include "atmos.h"
 #include "spectrum.h"
@@ -33,7 +34,7 @@
 #include "xdr.h"
 #include "initial_j.h"
 #include "geometry.h"
-#include "rhf1d.h"
+
 #include "spectrum.h"
 #include "pesc.h"
 

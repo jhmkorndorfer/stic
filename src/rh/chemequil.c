@@ -10,7 +10,8 @@
 #include <math.h>
 #include <string.h>
 
-#include "rh.h"
+// #include "rh.h"
+#include "rh_1d/rhf1d.h"
 #include "atom.h"
 #include "atmos.h"
 #include "background.h"
@@ -19,7 +20,7 @@
 #include "error.h"
 #include "statistics.h"
 #include "inputs.h"
-#include "rh_1d/rhf1d.h"
+
 #include "solveLinearCXX.h"
 
 #define COMMENT_CHAR  "#"

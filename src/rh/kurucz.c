@@ -66,7 +66,8 @@ FORMAT(F11.4,F7.3,F6.2,F12.3,F5.2,1X,A10,F12.3,F5.2,1X,A10,
 #include <string.h>
 //#include <ctype.h>
 
-#include "rh.h"
+// #include "rh.h"
+#include "rhf1d.h"
 #include "atom.h"
 #include "atmos.h"
 #include "background.h"
@@ -348,6 +349,248 @@ void readKuruczLines(char *inputFile)
 }
 
 /* ------- end ---------------------------- readKuruczLines.c ------- */
+
+
+/* ------- begin -------------------------- readKuruczLines_ctx.c ------- */
+
+
+void readKuruczLines_ctx(char *inputFile, RHContext *ctx)
+{
+  const char routineName[] = "readKuruczLines_ctx";
+  const double  C = 2.0*PI * (Q_ELECTRON/EPSILON_0) * 
+                             (Q_ELECTRON/M_ELECTRON) / CLIGHT;
+
+  char   inputLine[RLK_RECORD_LENGTH+1], listName[MAX_LINE_SIZE],
+         filename[MAX_LINE_SIZE], Gvalues[18+1], elem_code[7],
+         labeli[RLK_LABEL_LENGTH+1], labelj[RLK_LABEL_LENGTH+1],
+        *commentChar = COMMENT_CHAR;
+  bool_t swap_levels, determined, useBarklem;
+  int    Nline, Nread, Nrequired, checkPoint, hfs_i, hfs_j, gL_i, gL_j,
+         iso_dl, Li, Lj;
+  double lambda0, Ji, Jj, Grad, GStark, GvdWaals, pti,
+         Ei, Ej, gf, lambda_air;
+  RLK_Line *rlk;
+  Barklemstruct bs_SP, bs_PD, bs_DF;
+  FILE  *fp_Kurucz, *fp_linelist;
+
+  Atmosphere *atmosLocal = &ctx->atmos;
+  InputData *inputLocal = &ctx->input;
+
+  if (!strcmp(inputFile, "none")) return;
+
+  /* --- Read in the data files for Barklem collisional broadening -- */
+
+  readBarklemTable(SP, &bs_SP);
+  readBarklemTable(PD, &bs_PD);
+  readBarklemTable(DF, &bs_DF);
+
+  labeli[RLK_LABEL_LENGTH] = '\0';
+  labelj[RLK_LABEL_LENGTH] = '\0';
+
+  if ((fp_Kurucz = fopen(inputFile, "r")) == NULL) {
+    sprintf(messageStr, "Unable to open input file %s", inputFile);
+    Error(ERROR_LEVEL_1, routineName, messageStr);
+    return;
+  }
+  /* --- Go through each of the linelist files listed in input file - */  
+
+  while (getLine(fp_Kurucz, commentChar, listName, FALSE) != EOF) {
+    Nread = sscanf(listName, "%s", filename);
+    if ((fp_linelist = fopen(filename, "r")) == NULL) {
+      sprintf(messageStr, "Unable to open input file %s", filename);
+      Error(ERROR_LEVEL_1, routineName, messageStr);
+    }
+    /* --- Count the number of lines in this file --   -------------- */
+
+    Nline = 0;
+    while (fgets(inputLine, RLK_RECORD_LENGTH+1, fp_linelist) != NULL)
+      if (*inputLine != *commentChar) Nline++;
+    rewind(fp_linelist);
+
+    if (atmosLocal->Nrlk == 0) atmosLocal->rlk_lines = NULL;
+    atmosLocal->rlk_lines = (RLK_Line *)
+      realloc(atmosLocal->rlk_lines, (Nline + atmosLocal->Nrlk) * sizeof(RLK_Line));
+
+    /* --- Read lines from file --                     -------------- */
+
+    rlk = atmosLocal->rlk_lines + atmosLocal->Nrlk;
+    while (fgets(inputLine, RLK_RECORD_LENGTH+1, fp_linelist) != NULL) {
+      if (*inputLine != *commentChar) {
+
+        initRLK(rlk);
+
+	Nread = sscanf(inputLine, "%lf %lf %s %lf",
+		       &lambda_air, &gf, (char *) &elem_code, &Ei);
+
+        /* --- Ionization stage and periodic table index -- --------- */
+
+        sscanf(elem_code, "%d.%d", &rlk->pt_index, &rlk->stage);
+
+	Nread += sscanf(inputLine+53, "%lf", &Ej);
+
+	Ei = fabs(Ei) * (HPLANCK * CLIGHT) / CM_TO_M;
+	Ej = fabs(Ej) * (HPLANCK * CLIGHT) / CM_TO_M;
+
+	/* --- Beware: the Kurucz linelist has upper and lower levels
+	       of a transition in random order. Therefore, we have to
+               check for the lowest energy of the two and use that as
+               lower level --                          -------------- */
+
+	if (Ej < Ei) {
+	  swap_levels = TRUE; 
+	  rlk->level_i.E = Ej;
+	  rlk->level_j.E = Ei;
+	  strncpy(labeli, inputLine+69, RLK_LABEL_LENGTH);
+	  strncpy(labelj, inputLine+41, RLK_LABEL_LENGTH);
+	} else {
+	  swap_levels = FALSE;
+	  rlk->level_i.E = Ei;
+          rlk->level_j.E = Ej;
+	  strncpy(labeli, inputLine+41, RLK_LABEL_LENGTH);
+	  strncpy(labelj, inputLine+69, RLK_LABEL_LENGTH);
+	}
+
+	Nread += sscanf(inputLine+35, "%lf", &Ji);
+	Nread += sscanf(inputLine+63, "%lf", &Jj);
+	if (swap_levels) SWAPDOUBLE(Ji, Jj);
+	
+	rlk->level_i.J = Ji;
+	rlk->level_i.g = 2*Ji + 1;
+	rlk->level_j.J = Jj;
+	rlk->level_j.g = 2*Jj + 1;
+
+	if (USE_TABULATED_WAVELENGTH) {
+	  
+	  /* --- In this case use tabulated wavelength and adjust 
+	         upper-level energy --                 -------------- */
+
+	  air_to_vacuum(1, &lambda_air, &lambda0);
+	  lambda0 *= NM_TO_M;
+	  rlk->level_j.E = rlk->level_i.E +  (HPLANCK * CLIGHT) / lambda0;
+	} else {
+	  /* --- Else use energy levels to calculate lambda0 -- ----- */
+	  
+	  lambda0 = (HPLANCK * CLIGHT) / (rlk->level_j.E - rlk->level_i.E);
+	}
+	rlk->Aji = C / SQ(lambda0) * POW10(gf) / rlk->level_j.g;
+	rlk->Bji = CUBE(lambda0) / (2.0 * HPLANCK * CLIGHT) * rlk->Aji;
+	rlk->Bij = (rlk->level_j.g / rlk->level_i.g) * rlk->Bji;
+
+        /* --- Store in nm --                          -------------- */
+
+	rlk->lambda0 = lambda0 / NM_TO_M;
+
+	/* --- Get quantum numbers for angular momentum and spin -- - */
+
+        determined = (RLKdet_level(labeli, &rlk->level_i) &&
+		      RLKdet_level(labelj, &rlk->level_j));
+        rlk->polarizable = (atmosLocal->Stokes && determined);
+
+
+	
+	/* --- Get "small" l values for Barklem tables --- */
+	
+	determined = RLKdeterminate_ac(labeli, labelj, rlk);
+
+	
+	
+        /* --- Line broadening --                      -------------- */
+
+	strncpy(Gvalues, inputLine+79, 18);
+	Nread += sscanf(Gvalues, "%lf %lf %lf", &Grad, &GStark, &GvdWaals);
+
+	if (GStark != 0.0) 
+	  rlk->GStark = POW10(GStark) * CUBE(CM_TO_M);
+	else
+	  rlk->GStark = 0.0;
+
+	if (GvdWaals != 0.0)
+	  rlk->GvdWaals = POW10(GvdWaals) * CUBE(CM_TO_M);
+	else
+	  rlk->GvdWaals = 0.0;
+
+        /* --- If possible use Barklem formalism --    -------------- */
+
+	useBarklem = FALSE;
+	if (determined &&
+	    rlk->level_i.cpl == LS_COUPLING &&
+	    rlk->level_j.cpl == LS_COUPLING) {
+	
+	  Li = rlk->level_i.lower_l;
+	  Lj = rlk->level_j.lower_l;
+	  
+	  if ((Li == S_ORBIT && Lj == P_ORBIT) ||
+              (Li == P_ORBIT && Lj == S_ORBIT)) {
+	    useBarklem = getBarklemcross_ac(&bs_SP, rlk);
+	  } else if ((Li == P_ORBIT && Lj == D_ORBIT) ||
+		     (Li == D_ORBIT && Lj == P_ORBIT)) {
+	    useBarklem = getBarklemcross_ac(&bs_PD, rlk);
+	  } else if ((Li == D_ORBIT && Lj == F_ORBIT) ||
+		     (Li == F_ORBIT && Lj == D_ORBIT)) {
+	    useBarklem = getBarklemcross_ac(&bs_DF, rlk);
+	  }
+	}
+	/* --- Else use good old Unsoeld --            -------------- */
+
+        if (!useBarklem) {
+	  getUnsoldcross(rlk);
+	}
+	/* --- Radiative broadening --                 -------------- */
+
+	if (Grad != 0.0) {
+	  rlk->Grad = POW10(Grad);
+	} else {
+
+	  /* --- Just take the Einstein Aji value--    -------------- */     
+
+	  rlk->Grad = rlk->Aji;
+	}
+	/* --- Isotope and hyperfine fractions and slpittings -- ---- */
+
+	Nread += sscanf(inputLine+106, "%d", &rlk->isotope);
+	Nread += sscanf(inputLine+108, "%lf", &rlk->isotope_frac);
+	rlk->isotope_frac = POW10(rlk->isotope_frac);
+	Nread += sscanf(inputLine+117, "%lf", &rlk->hyperfine_frac);
+	rlk->hyperfine_frac = POW10(rlk->hyperfine_frac);
+	Nread += sscanf(inputLine+123, "%5d%5d", &hfs_i, &hfs_j);
+	rlk->level_i.hfs = ((double) hfs_i) * MILLI * KBOLTZMANN;
+	rlk->level_j.hfs = ((double) hfs_j) * MILLI * KBOLTZMANN;
+
+	/* --- Effective Lande factors --              -------------- */
+
+	Nread += sscanf(inputLine+143, "%5d%5d", &gL_i, &gL_j);
+	rlk->level_i.gL = gL_i * MILLI;
+	rlk->level_j.gL = gL_j * MILLI;
+	if (swap_levels) {
+	  SWAPDOUBLE(rlk->level_i.hfs, rlk->level_j.hfs);
+	  SWAPDOUBLE(rlk->level_i.gL, rlk->level_j.gL);
+	}
+
+	/*      Nread += sscanf(inputLine+154, "%d", &iso_dl); */
+	iso_dl = 0;
+	rlk->iso_dl = iso_dl * MILLI * ANGSTROM_TO_NM;
+
+	checkNread(Nread, Nrequired=17, routineName, checkPoint=1);
+	rlk++;
+      }
+    }
+    fclose(fp_linelist);
+
+    sprintf(messageStr, "Read %d Kurucz lines from file %s\n",
+	    Nline, listName);
+    Error(MESSAGE, routineName, messageStr);
+    atmosLocal->Nrlk += Nline;
+  }
+
+  fclose(fp_Kurucz);
+
+  free_BS(&bs_SP);
+  free_BS(&bs_PD);
+  free_BS(&bs_DF);
+}
+
+/* ------- end ---------------------------- readKuruczLines_ctx.c ------- */
+
 
 /* ------- begin -------------------------- rlk_ascend.c ------------ */
  

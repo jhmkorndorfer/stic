@@ -109,7 +109,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "rh.h"
+// #include "rh.h"
+#include "rhf1d.h"
 #include "atom.h"
 #include "atmos.h"
 #include "spectrum.h"
@@ -119,7 +120,7 @@
 #include "statistics.h"
 #include "inputs.h"
 #include "geometry.h"
-#include "rhf1d.h"
+
 //#include "xdr.h"
 
 
@@ -303,6 +304,105 @@ void init_Background_j(){
   memset(bmem, 0, spectrum.Nspect * sizeof(rhbgmem));
   
   for (nspect = 0;  nspect < spectrum.Nspect;  nspect++) bmem[nspect].allocated = false;
+
+
+  return;
+  
+}
+
+void init_Background_j_ctx(RHContext *ctx){
+   const char routineName[] = "init_Background";
+  char    inputLine[MAX_LINE_SIZE];
+  bool_t  exit_on_EOF;
+  int     n, nspect;
+  FILE   *fp_fudge;
+  char    file_background[MAX_MESSAGE_LENGTH], *fext = FILE_EXT;
+  long nstokes, recsize;
+
+// REMINDER OF WHICH ARE THE GLOBALS HERE:
+// extern Atmosphere atmos;
+// extern Spectrum spectrum;
+// extern InputData input;
+// extern char messageStr[];
+// extern BackgroundData bgdat;
+// extern rhinfo io;
+// extern rhbgmem *bmem;
+// extern MPI_t mpi;
+
+  Atmosphere *atmosLocal = &ctx->atmos;
+  InputData *inputLocal = &ctx->input;
+  Spectrum *spectrumLocal = &ctx->spectrum;
+  BackgroundData *bgdatLocal = &ctx->bgdat;
+  // rhinfo *ioLocal = &ctx->io; Not needed it seems...
+  rhbgmem *bmemLocal = ctx->bmem;
+
+
+  
+  if (strcmp(inputLocal->fudgeData, "none")) {
+    bgdatLocal->do_fudge = TRUE;
+
+    /* --- Read wavelength-dependent fudge factors to compensate for
+       missing UV backround line haze --           -------------- */
+
+    if ((fp_fudge = fopen(inputLocal->fudgeData, "r")) == NULL) {
+      sprintf(messageStr, "Unable to open input file %s", inputLocal->fudgeData);
+      Error(ERROR_LEVEL_2, routineName, messageStr);
+    }
+    sprintf(messageStr,
+	    "\n-Fudging background opacities with file\n  %s\n\n",
+	    inputLocal->fudgeData);
+    Error(MESSAGE, routineName, messageStr);
+    
+    getLine(fp_fudge, COMMENT_CHAR, inputLine, exit_on_EOF=TRUE);
+    sscanf(inputLine, "%d", &bgdatLocal->Nfudge);
+    bgdatLocal->lambda_fudge = (double *) malloc(bgdatLocal->Nfudge * sizeof(double));
+    bgdatLocal->fudge = matrix_double(3, bgdatLocal->Nfudge);
+    for (n = 0;  n < bgdatLocal->Nfudge;  n++) {
+      getLine(fp_fudge, COMMENT_CHAR, inputLine, exit_on_EOF=TRUE);
+      sscanf(inputLine, "%lf %lf %lf %lf", &bgdatLocal->lambda_fudge[n],
+	     &bgdatLocal->fudge[0][n], &bgdatLocal->fudge[1][n], &bgdatLocal->fudge[2][n]);
+    }
+    for (n = 0;  n < 3*bgdatLocal->Nfudge;  n++) bgdatLocal->fudge[0][n] += 1.0;
+    fclose(fp_fudge);
+  } else
+    bgdatLocal->do_fudge = FALSE;
+
+
+  
+  /* --- Allocate memory for the boolean array that stores whether
+         a wavelength overlaps with a Bound-Bound transition in the
+         background, or whether it is polarized --     -------------- */
+  // printf("%d\n", spectrum.Nspect);
+  atmosLocal->backgrflags = (flags *) malloc(spectrumLocal->Nspect * sizeof(flags));
+  for (nspect = 0;  nspect < spectrumLocal->Nspect;  nspect++) {
+    atmosLocal->backgrflags[nspect].hasline = FALSE;
+    atmosLocal->backgrflags[nspect].ispolarized = FALSE;
+  }
+  /* --- Allocate memory for the list of record numbers that specifies
+         for each wavelength where to find the background opacity,
+         scattering opacity, and emissivity --         -------------- */
+
+  if (atmosLocal->moving || atmosLocal->Stokes) {
+    atmosLocal->backgrrecno = 
+      (int *) malloc(2*spectrumLocal->Nspect*atmosLocal->Nrays * sizeof(int)); 
+  } else
+    atmosLocal->backgrrecno = (int *) malloc(spectrumLocal->Nspect * sizeof(int));
+
+
+   /* --- Read background files from Kurucz data file -- ------------- */
+  atmosLocal->Nrlk = 0;
+  readKuruczLines_ctx(inputLocal->KuruczData, ctx);
+  if (atmosLocal->Nrlk > 0) {
+    qsort(atmosLocal->rlk_lines, atmosLocal->Nrlk, sizeof(RLK_Line), rlk_ascend);
+  }
+  
+
+  
+  /* --- Init to null arrays to store data --- */
+  bmemLocal = (rhbgmem*) malloc(spectrumLocal->Nspect * sizeof(rhbgmem));
+  memset(bmemLocal, 0, spectrumLocal->Nspect * sizeof(rhbgmem));
+
+  for (nspect = 0;  nspect < spectrumLocal->Nspect;  nspect++) bmemLocal[nspect].allocated = false;
 
 
   return;
