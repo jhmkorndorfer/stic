@@ -11,7 +11,7 @@
 #include "interpol.h"
 extern "C" {
 #include "rhf1d.h"
-#include "rh.h"
+// #include "rh.h"
 }
 //
 using namespace std;
@@ -238,6 +238,8 @@ crh::crh(iput_t &inpt, double grav): atmos(inpt, grav){
 
 bool crh::synth(mdepth_t &m_in, double *syn, int computing_derivatives, cprof_solver sol, bool save_pops){
 
+  printf("CCRRRRHHHHHHH\n");
+
   static int ncall = 0, npix = 0;
   ncall++;
 
@@ -258,7 +260,8 @@ bool crh::synth(mdepth_t &m_in, double *syn, int computing_derivatives, cprof_so
   vector<float> frac, part;
   frac.resize(m.ndep,0.0);
   part.resize(m.ndep,0.0);
-  nhtot.resize(m.ndep,0.0);
+  // nhtot.resize(m.ndep,0.0);
+  std::vector<double> local_nhtot(m.ndep, 0.0);
   double *B = new double [m.ndep], *inc = new double [m.ndep];
   
   
@@ -286,7 +289,7 @@ bool crh::synth(mdepth_t &m_in, double *syn, int computing_derivatives, cprof_so
     //eos.read_partial_pressures(kk, frac, part, xa, xe);
     
     double xna = m.pgas[kk] / (phyc::BK * m.temp[kk]) - m.nne[kk];
-    nhtot[kk] = xna * eos->ABUND[0] / eos->tABUND * 1.e6; // nHtot based on abundance
+    local_nhtot[kk] = xna * eos->ABUND[0] / eos->tABUND * 1.e6; // nHtot based on abundance
     //nhtot[kk] = m.rho[kk] / (phyc::AMU * eos.avmol) *  eos.ABUND[0] / eos.totalAbund * 1.e6;
     
     /* --- Convert units to SI --- */
@@ -315,11 +318,21 @@ bool crh::synth(mdepth_t &m_in, double *syn, int computing_derivatives, cprof_so
   
   
   /* --- Call RH --- */
-  
-  bool conv = rhf1d(input.mu, m.ndep, &m.temp[0], &m.rho[0], &m.nne[0], &m.vturb[0], &m.v[0],
-		     &B[0], &inc[0], &m.azi[0], &m.z[0], &nhtot[0], &m.tau[0],
+  bool conv = true;
+  // #pragma omp critical
+  // {
+RHContext ctx;
+memset(&ctx, 0, sizeof(RHContext)); // zero-init for safety
+
+
+ctx.mpi.rank = input.myrank;
+ctx.commandline.quiet = (input.verbose == 0);
+
+  conv = rhf1d( &ctx, input.mu, m.ndep, &m.temp[0], &m.rho[0], &m.nne[0], &m.vturb[0], &m.v[0],
+		     &B[0], &inc[0], &m.azi[0], &m.z[0], &local_nhtot[0], &m.tau[0],
 		    &m.cmass[0], 4.44, (bool_t)true, &sp, &save_pop, nlambda, &lambda[0],
 		    input.myrank, savep, (int)input.verbose, &hydrostat, computing_derivatives);
+  // }
   
   delete [] B;
   delete [] inc;
@@ -370,7 +383,7 @@ bool crh::synth(mdepth_t &m_in, double *syn, int computing_derivatives, cprof_so
   if(hydrostat > 0){
     for(int kk = 0; kk < m.ndep; kk++){
       
-      m.pgas[kk] = (nhtot[kk] * eos->tABUND / eos->ABUND[0] + m.nne[kk]) *
+      m.pgas[kk] = (local_nhtot[kk] * eos->tABUND / eos->ABUND[0] + m.nne[kk]) *
 	phyc::BK * m_in.temp[kk] * 1.e-6;
       
       if(kk > 0) m_in.pgas[kk] = m.pgas[kk]; // preserve pgas at the boundary otherwise the inversion can be unstable
@@ -395,7 +408,8 @@ bool crh::synth(mdepth_t &m_in, double *syn, int computing_derivatives, cprof_so
 /* ----------------------------------------------------------------*/
 
 void crh::cleanup(void){
-  clean_saved_populations(&save_pop);
+  RHContext dummy = {};
+  clean_saved_populations(&dummy, &save_pop); 
 }
 
 /* ----------------------------------------------------------------*/
@@ -445,3 +459,4 @@ void crh::checkBounds(mdepth_t &m)
   
   
 }
+

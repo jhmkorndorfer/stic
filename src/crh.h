@@ -24,7 +24,7 @@ class crh: public atmos{
   int nlambda, nlines, nregions;
   std::vector<double> lambda, cmass, nhtot;
   crhpop save_pop;
-  
+
   /* --- Prototypes --- */
   std::vector<double> get_max_limits(nodes_t &n, int mode =1);
   std::vector<double> get_min_limits(nodes_t &n, int mode = 1);
@@ -35,8 +35,11 @@ class crh: public atmos{
   void lambdaIDX(int nw, double *lambda);
   void checkBounds(mdepth_t &m);
 
+  crh(const crh& other) = default;
+  virtual atmos* clone() const override { return new crh(*this); }
 
-  
+
+
   /* --- Contructor / Destructor --- */
   crh(iput_t &iput, double grav = 4.44);
   ~crh();

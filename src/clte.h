@@ -34,26 +34,30 @@ class clte: public atmos{
   std::vector<double> lambda;
   int nlambda, nlines, nregions;
   //ceos eos;
-  
+
   /* --- Other objects included --- */
   //ceos eos; // Now ncluded in atmos base class
   cprofiles prof;
-  
+
   /* --- Constructor/Destructor --- */
   // clte(){};
   clte(iput_t &input, double grav = 4.44);
   ~clte(){};
 
   /* --- methods --- */
- inline double lte_opac(double temp, double n_u, double gf, double elow, double nu0);
- //void synth(mdepth_t &m, mat<double> &syn, cprof_solver sol = bez_z);
+  inline double lte_opac(double temp, double n_u, double gf, double elow, double nu0);
+  //void synth(mdepth_t &m, mat<double> &syn, cprof_solver sol = bez_z);
   bool synth(mdepth &m, double *syn, int computing_derivatives=0, cprof_solver sol = bez_ltau, bool store_pops = true);
   std::vector<double> get_max_limits(nodes_t &n, int mode);
   std::vector<double> get_min_limits(nodes_t &n, int mode);
- std::vector<double> get_scaling(nodes_t &n, int mode);
- std::vector<double> get_steps(nodes_t &n);
- void cleanup(void){};
- void checkBounds(mdepth_t &m);
+  std::vector<double> get_scaling(nodes_t &n, int mode);
+  std::vector<double> get_steps(nodes_t &n);
+  void cleanup(void){};
+  void checkBounds(mdepth_t &m);
+
+  clte(const clte& other) = default;
+  virtual atmos* clone() const override { return new clte(*this); }
+
 
  
 };
