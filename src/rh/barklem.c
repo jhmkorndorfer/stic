@@ -266,6 +266,68 @@ bool_t getBarklemcross_ac(Barklemstruct *bs, RLK_Line *rlk)
   rlk->vdwaals = BARKLEM;
   return TRUE;
 }
+
+bool_t getBarklemcross_ac_ctx(Barklemstruct *bs, RLK_Line *rlk, RHContext *ctx)
+{
+  Atmosphere *atmosLocal = &ctx->atmos;
+  // InputData *inputLocal = &ctx->input; Not needed here.
+
+  const char routineName[] = "getBarklemcross_ac_ctx";
+
+  int index;
+  double Z, neff1, neff2, findex1, findex2, reducedmass, meanvelocity,
+         crossmean, E_Rydberg, deltaEi, deltaEj;
+  Element *element;
+
+  element = &atmosLocal->elements[rlk->pt_index - 1];
+
+  /* --- Note: ABO tabulations are valid only for neutral atoms -- -- */
+
+  if (rlk->stage > 0)
+    return FALSE;
+
+  if ((deltaEi = element->ionpot[rlk->stage] - rlk->level_i.E) <= 0.0)
+    return FALSE;
+  if ((deltaEj = element->ionpot[rlk->stage] - rlk->level_j.E) <= 0.0)
+    return FALSE;
+
+  Z = (double) (rlk->stage + 1);
+  E_Rydberg = E_RYDBERG / (1.0 + M_ELECTRON / (element->weight * AMU));
+  neff1 = Z * sqrt(E_Rydberg / deltaEi);
+  neff2 = Z * sqrt(E_Rydberg / deltaEj);
+
+  if (rlk->level_i.lower_l > rlk->level_j.lower_l) SWAPDOUBLE(neff1, neff2);
+  
+  if (neff1 < bs->neff1[0] || neff1 > bs->neff1[bs->N1-1])
+    return FALSE;
+  Locate(bs->N1, bs->neff1, neff1, &index);
+  findex1 =
+    (double) index + (neff1 - bs->neff1[index]) / BARKLEM_DELTA_NEFF;
+
+  if (neff2 < bs->neff2[0] || neff2 > bs->neff2[bs->N2-1])
+    return FALSE;
+  Locate(bs->N2, bs->neff2, neff2, &index);
+  findex2 =
+    (double) index + (neff2 - bs->neff2[index]) / BARKLEM_DELTA_NEFF;
+
+  /* --- Find interpolation in table --                -------------- */
+
+  rlk->cross = cubeconvol(bs->N2, bs->N1,
+			  bs->cross[0], findex2, findex1);
+  rlk->alpha = cubeconvol(bs->N2, bs->N1,
+			  bs->alpha[0], findex2, findex1);
+
+  reducedmass  = AMU / (1.0/atmosLocal->H->weight + 1.0/element->weight);
+  meanvelocity = sqrt(8.0 * KBOLTZMANN / (PI * reducedmass));
+  crossmean    = SQ(RBOHR) * pow(meanvelocity / 1.0E4, -rlk->alpha);
+
+  rlk->cross *= 2.0 * pow(4.0/PI, rlk->alpha/2.0) * 
+    exp(gammln((4.0 - rlk->alpha)/2.0)) * meanvelocity * crossmean;  
+
+  rlk->vdwaals = BARKLEM;
+  return TRUE;
+}
+
 /* ------- begin -------------------------- getBarklemactivecross.c - */
 
 bool_t getBarklemactivecross(AtomicLine *line)

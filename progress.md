@@ -4,6 +4,7 @@
 
 ### Accomplishments (including missing notes)
 - Currently refactoring rhf1d to try to make it threadsafe...
+- In rhf1d, refactoring done up to init_Background_j_ctx(ctx); Line 238.
 
 ### Challenges
 - 

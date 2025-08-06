@@ -482,8 +482,8 @@ void readKuruczLines_ctx(char *inputFile, RHContext *ctx)
 
 	/* --- Get quantum numbers for angular momentum and spin -- - */
 
-        determined = (RLKdet_level(labeli, &rlk->level_i) &&
-		      RLKdet_level(labelj, &rlk->level_j));
+        determined = (RLKdet_level_ctx(labeli, &rlk->level_i, ctx) &&
+		      RLKdet_level_ctx(labelj, &rlk->level_j, ctx));
         rlk->polarizable = (atmosLocal->Stokes && determined);
 
 
@@ -521,19 +521,19 @@ void readKuruczLines_ctx(char *inputFile, RHContext *ctx)
 	  
 	  if ((Li == S_ORBIT && Lj == P_ORBIT) ||
               (Li == P_ORBIT && Lj == S_ORBIT)) {
-	    useBarklem = getBarklemcross_ac(&bs_SP, rlk);
+	    useBarklem = getBarklemcross_ac_ctx(&bs_SP, rlk, ctx);
 	  } else if ((Li == P_ORBIT && Lj == D_ORBIT) ||
 		     (Li == D_ORBIT && Lj == P_ORBIT)) {
-	    useBarklem = getBarklemcross_ac(&bs_PD, rlk);
+	    useBarklem = getBarklemcross_ac_ctx(&bs_PD, rlk, ctx);
 	  } else if ((Li == D_ORBIT && Lj == F_ORBIT) ||
 		     (Li == F_ORBIT && Lj == D_ORBIT)) {
-	    useBarklem = getBarklemcross_ac(&bs_DF, rlk);
+	    useBarklem = getBarklemcross_ac_ctx(&bs_DF, rlk, ctx);
 	  }
 	}
 	/* --- Else use good old Unsoeld --            -------------- */
 
         if (!useBarklem) {
-	  getUnsoldcross(rlk);
+	  getUnsoldcross_ctx(rlk, ctx);
 	}
 	/* --- Radiative broadening --                 -------------- */
 
@@ -1295,6 +1295,158 @@ bool_t RLKdet_level(char* label, RLK_level *level)
   }
 }
 
+bool_t RLKdet_level_ctx(char* label, RLK_level *level, RHContext *ctx)
+{
+  const char routineName[] = "RLKdet_level";
+
+  char **words, orbit[2], Lchar, L1char, lchar, Kchar, l1char, l2char;
+  char delims_i[] = "({[";
+  char delims_f[] = ")}]";
+  char *ptr_i, *ptr_f, *quanta_str;
+  bool_t counterror;
+  int  count, multiplicity, length, Nread, M1;
+  double J1, j1, j2;
+
+  Atmosphere *atmosLocal = &ctx->atmos;
+  InputData *inputLocal = &ctx->input;
+
+  /* --- Get spin and orbital quantum numbers from level labels --
+
+    For explicit LS_COUPLING, or JK_ and JJ_COUPLING provide labels with
+    explicit quantum numbers as follows (note the delimiters, no spaces).
+    In the Kurucz line list file (note J is always explicitly listed).
+
+    In keyword.input set RLK_EXPLICIT = TRUE
+    You CAN NOT mix explicit and non-explicit label modes!
+
+    See:  Landi degl'Innocenti & Landolfi 2004, pp 76-77
+    Note: the label HAS to be 10 characters long, and no other
+          elements of the line in the .kur should be moved!!
+
+      LS_COUPLING: [m,L]             Exmpl: '[2P]      ' --> S = 0.5, L = 1
+      JK_COUPLING: (M1L1J1)lmK       Exmpl: '(6D4.5)f2K' --> S1 = 2.5, L1 = 2,
+                                               J1 = 4.5, l = 3, K = 3.5
+      JJ_COUPLING: {j1l1j2l2}        Exmpl: '{1.5p2.5s}' --> j1 = 1.5,
+                                               l1 = 1, j2 = 2.5, l2 = 0
+
+    Example for the FeI 1565.2874 line (JK_COUPLING in upper level):
+
+1565.2874 -0.476 26.00   50377.905  5.0 s6D)4d f7D   56764.763  4.0 s6D9/4f[3]   8.44 -5.00 -7.70K94  0 0  0 0.000  0 0.000    0    0           1510 1542
+
+    becomes:
+
+1565.2874 -0.476 26.00   50377.905  5.0 [7D]         56764.763  4.0 (6D4.5)f2k   8.44 -5.00 -7.70K94  0 0  0 0.000  0 0.000    0    0           1510 1542
+
+     --                                                -------------- */
+
+  if (!inputLocal->RLK_explicit) {
+
+    words = getWords(label, " ", &count);
+    if (words[0]) {
+      length = strlen(words[count-1]);
+      Nread  = sscanf(words[count-1] + length-2, "%d%1s",
+		      &multiplicity, orbit);
+      free(words);
+      if (Nread != 2 || !isupper(orbit[0])) return FALSE;
+    
+      level->L = getOrbital(orbit[0]);
+      level->S = (multiplicity - 1) / 2.0;
+      
+      level->cpl = LS_COUPLING;
+      return TRUE;
+    } else
+      return FALSE;
+  } else {
+  
+    /* --- Check for presence of any of three allowed delimiters -- - */
+  
+    ptr_i = strpbrk(label, delims_i);
+    ptr_f = strpbrk(label, delims_f);
+
+    if (ptr_i == NULL || ptr_f == NULL) {
+      if (ptr_i != NULL && ptr_f == NULL) {
+	sprintf(messageStr, " Malformed label: missing ending "
+		"delimiter: %c, label: %s\n",
+		delims_f[strchr(delims_i, ptr_i[0]) - delims_i], label);
+	Error(ERROR_LEVEL_2, routineName, messageStr);
+      }
+      if (ptr_i == NULL && ptr_f != NULL) {
+	sprintf(messageStr, " Malformed label: missing beginning "
+		"delimiter: %c, label: %s\n",
+		delims_i[strchr(delims_f, ptr_f[0]) - delims_f], label);
+	Error(ERROR_LEVEL_2, routineName, messageStr);
+      }
+      return FALSE;
+    }
+    if (ptr_i[0] != delims_i[strchr(delims_f, ptr_f[0]) - delims_f]) {
+
+      /* --- When delimiters are not matching --       -------------- */
+      
+      sprintf(messageStr,
+	      " Malformed label: mismatched delimiters: '%c %c', %s\n",
+	      ptr_i[0], ptr_f[0], label);
+      Error(ERROR_LEVEL_2, routineName, messageStr);
+      return FALSE;
+    }     
+
+    length = ptr_f - ptr_i + 2;
+    quanta_str = (char *) malloc(length);
+    strncpy(quanta_str, ptr_i, length-1);
+    quanta_str[length-1] = '\0';
+
+    counterror = FALSE;
+
+    switch (ptr_i[0]) {
+    case '[':
+      if (Nread = sscanf(quanta_str, "[%1d%1c]",
+			 &multiplicity, &Lchar) != LS_COUNT)
+	counterror = TRUE;
+      else {
+	level->S = (multiplicity - 1) / 2.0;
+	level->L = getOrbital(Lchar);
+	
+	level->cpl = LS_COUPLING;
+      }
+      break;
+
+    case '(':
+      if (Nread = sscanf(label, "(%1d%1c%3lf)%1c%1d%1c",
+			 &M1, &L1char, &level->J1, &lchar,
+			 &multiplicity, &Kchar) != JK_COUNT)
+	counterror = TRUE;
+      else {
+	level->S1 = (M1 - 1) / 2.0;
+	level->L1 = getOrbital(L1char);
+	level->l  = getOrbital(toupper(lchar));
+	level->K  = getJK_K(Kchar);
+	
+	level->cpl = JK_COUPLING;
+      }
+      break;
+
+    case '{':
+      if (Nread = sscanf(quanta_str, "{%3lf%1c%3lf%1c}",
+			 &level->j1, &l1char,
+			 &level->j2, &l2char) != JJ_COUNT)
+	counterror = TRUE;
+      else {
+	level->l1 = getOrbital(toupper(l1char));
+	level->l2 = getOrbital(toupper(l2char));
+	
+	level->cpl = JJ_COUPLING;
+      }
+      break;
+    }
+    if (counterror) {
+      sprintf(messageStr, "Wrong quantum number count: %s: %d\n",
+	      quanta_str, Nread);
+      Error(ERROR_LEVEL_2, routineName, messageStr);
+      return FALSE;
+    }
+    free(quanta_str);
+    return TRUE;
+  }
+}
 
 /* ------- begin -------------------------- initRLK.c --------------- */
 
@@ -1346,6 +1498,49 @@ void getUnsoldcross(RLK_Line *rlk)
   rlk->vdwaals = UNSOLD;
 }
 /* ------- end ---------------------------- getUnsoldcross.c -------- */
+
+/* ------- begin -------------------------- getUnsoldcross_ctx.c -------- */
+
+void getUnsoldcross_ctx(RLK_Line *rlk, RHContext *ctx)
+{
+  Atmosphere *atmosLocal = &ctx->atmos;
+  InputData *inputLocal = &ctx->input;
+  const double FOURPIEPS0 = 4.0 * PI * EPSILON_0;
+
+
+  double   Z, deltaR, vrel35_H, vrel35_He, C625;
+  Element *element, *He;
+
+  element = &atmosLocal->elements[rlk->pt_index - 1];
+  He = &atmosLocal->elements[1];
+
+  if (rlk->stage > element->Nstage - 1) {
+    rlk->vdwaals = KURUCZ;
+    return;
+  }
+  
+  Z = rlk->stage + 1;
+  deltaR = SQ(E_RYDBERG/(element->ionpot[rlk->stage] - rlk->level_j.E)) -
+    SQ(E_RYDBERG/(element->ionpot[rlk->stage] - rlk->level_i.E));
+  
+  if (deltaR <= 0.0) {
+    rlk->vdwaals = KURUCZ;
+    return;
+  }
+
+  vrel35_H  = pow(8.0*KBOLTZMANN/(PI * AMU * element->weight) * 
+		  (1.0 + element->weight/atmosLocal->H->weight), 0.3);
+  vrel35_He = pow(8.0*KBOLTZMANN/(PI * AMU * element->weight) * 
+		  (1.0 + element->weight/He->weight), 0.3);
+
+  C625 = pow(2.5 * (SQ(Q_ELECTRON)/FOURPIEPS0) *
+	     (ABARH/FOURPIEPS0) *
+	     2*PI * SQ(Z*RBOHR)/HPLANCK * deltaR, 0.4);
+  rlk->cross = 8.08 *(vrel35_H + He->abund*vrel35_He) * C625;
+
+  rlk->vdwaals = UNSOLD;
+}
+/* ------- end ---------------------------- getUnsoldcross_ctx.c -------- */
 
 /* ------- begin -------------------------- free_BS.c --------------- */
 

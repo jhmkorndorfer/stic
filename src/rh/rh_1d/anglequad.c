@@ -12,7 +12,8 @@
 #include <stdlib.h>
 #include <math.h>
 
-#include "rh.h"
+// #include "rh.h"
+#include "rhf1d.h"
 #include "atom.h"
 #include "atmos.h"
 #include "geometry.h"
@@ -53,3 +54,34 @@ void getAngleQuad(Geometry *geometry)
   }
 }
 /* ------- end ---------------------------- getAngleQuad.c ---------- */
+
+
+/* ------- begin -------------------------- getAngleQuad_ctx.c ---------- */
+
+void getAngleQuad_ctx(RHContext *ctx)
+{
+  Atmosphere *atmosLocal = &ctx->atmos;
+  Geometry *geometryLocal = &ctx->geometry;
+  register int mu;
+
+  /* --- Copy the number of rays to the geometry structure.
+   Note: Nrays is read into the atmos structure in readinput.c -- --- */
+
+  geometryLocal->Nrays = atmosLocal->Nrays;
+
+  geometryLocal->mux = (double *) malloc(geometryLocal->Nrays * sizeof(double));
+  geometryLocal->muy = (double *) malloc(geometryLocal->Nrays * sizeof(double));
+  geometryLocal->muz = (double *) malloc(geometryLocal->Nrays * sizeof(double));
+  geometryLocal->wmu = (double *) malloc(geometryLocal->Nrays * sizeof(double));
+
+  GaussLeg(0.0, 1.0, geometryLocal->muz, geometryLocal->wmu, geometryLocal->Nrays);
+
+  /* --- In the 1-D plane case assume that all the rays lie in the z-x
+         plane and are pointed in the direction of positive x. -- --- */
+
+  for (mu = 0;  mu < geometryLocal->Nrays;  mu++) {
+    geometryLocal->muy[mu] = 0.0;
+    geometryLocal->mux[mu] = sqrt(1.0 - SQ(geometryLocal->muz[mu]));
+  }
+}
+/* ------- end ---------------------------- getAngleQuad_ctx.c ---------- */

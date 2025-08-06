@@ -179,7 +179,7 @@ bool_t rhf1d(RHContext* ctx, float muz, int rhs_ndep, double *rhs_T, double *rhs
     readInput_ctx(ctx);
     // readAbundance(&ctx->atmos);
     readAbundance_ctx(ctx);
-    DUMMYatmos(&ctx->atmos, &ctx->geometry, firsttime);
+    DUMMYatmos_ctx(ctx);
     oldMode = ctx->input.StokesMode;
     mpi.rank = myrank;
     ctx->mpi.rank = myrank;

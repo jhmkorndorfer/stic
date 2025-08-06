@@ -102,6 +102,8 @@ extern "C" {
   void calculateRay(void);
 
   //  For now here I will add the tentative functions for RHF1D thread safe version...
+  void DUMMYatmos_ctx(RHContext *ctx);
+  void getAngleQuad_ctx(RHContext *ctx);
   void readAbundance_ctx(RHContext *ctx);
   void readAtomicModels_ctx(RHContext *ctx);
   void distribute_nH_ctx(RHContext *ctx);
@@ -115,6 +117,10 @@ extern "C" {
   void SortLambda_j_ctx(int mynw, double *mylambda, RHContext *ctx);
   void init_Background_j_ctx(RHContext *ctx);
   void readKuruczLines_ctx(char *inputFile, RHContext *ctx);
+  bool_t RLKdet_level_ctx(char* label, RLK_level *level, RHContext *ctx);
+  void getUnsoldcross_ctx(RLK_Line *rlk, RHContext *ctx);
+  bool_t getBarklemcross_ac_ctx(Barklemstruct *bs, RLK_Line *rlk, RHContext *ctx);
+
 
 
 

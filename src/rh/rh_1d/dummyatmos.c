@@ -89,6 +89,63 @@ void DUMMYatmos(Atmosphere *atmos, Geometry *geometry, bool_t firsttime)
 
   getCPU(2, TIME_POLL, "Read Atmosphere");
 }
+
+void DUMMYatmos_ctx(RHContext *ctx)
+{
+  Atmosphere *atmosLocal = &ctx->atmos;
+  // InputData *inputLocal = &ctx->input;
+  Geometry *geometryLocal = &ctx->geometry;
+
+  const char routineName[] = "DUMMYatmos";
+  register int k, n, mu;
+
+  char    scaleStr[20], inputLine[MAX_LINE_SIZE], *filename;
+  bool_t  exit_on_EOF, enhanced_atmos_ID = FALSE;
+  int     Nread, Ndep, Nrequired, checkPoint;
+  double *dscale, turbpress, turbelecpress, nbaryon, meanweight;
+  struct  stat statBuffer;
+
+  getCPU(2, TIME_START, NULL);
+
+
+  atmosLocal->NHydr = N_HYDROGEN_MULTI;
+
+  /* --- Boundary condition at TOP of atmosphere --      ------------ */
+  geometryLocal->vboundary[TOP] = ZERO;
+
+  /* --- Boundary condition at BOTTOM of atmosphere --   ------------ */
+
+  geometryLocal->vboundary[BOTTOM] = THERMALIZED;
+  //geometry->scale =  GEOMETRIC;
+  //geometry->scale = COLUMN_MASS;
+  //geometry->scale = TAU500;
+  
+  // Nread = sscanf("dummyATM", "%s", atmos->ID);
+  
+  // getLine(atmos->fp_atmos, MULTI_COMMENT_CHAR, inputLine, exit_on_EOF=TRUE);
+  Nread += sscanf("M", "%20s", scaleStr); // Only the first character is needed;
+ 
+  /* --- Keep duplicates of some of the geometrical quantities in
+         Atmos structure --                            -------------- */
+
+  atmosLocal->Ndim = 1;
+  atmosLocal->N = (int *) malloc(atmosLocal->Ndim * sizeof(int));
+  atmosLocal->Nspace = Ndep = geometry->Ndep;
+  atmosLocal->N[0] = Ndep;
+
+  atmosLocal->gravity = POW10(atmosLocal->gravity) * CM_TO_M;
+
+
+  /* --- Get angle-quadrature and copy geometry independent quantity
+         wmu to atmos structure. --                    -------------- */
+
+  getAngleQuad_ctx(ctx);
+  atmosLocal->wmu = geometryLocal->wmu;
+
+
+  getCPU(2, TIME_POLL, "Read Atmosphere");
+}
+
 /* ------- end ---------------------------- MULTIatmos.c ------------ */
 
 /* ------- begin -------------------------- convertScales.c --------- */
