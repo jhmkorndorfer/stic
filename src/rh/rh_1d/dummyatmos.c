@@ -130,7 +130,7 @@ void DUMMYatmos_ctx(RHContext *ctx)
 
   atmosLocal->Ndim = 1;
   atmosLocal->N = (int *) malloc(atmosLocal->Ndim * sizeof(int));
-  atmosLocal->Nspace = Ndep = geometry->Ndep;
+  atmosLocal->Nspace = Ndep = geometryLocal->Ndep;
   atmosLocal->N[0] = Ndep;
 
   atmosLocal->gravity = POW10(atmosLocal->gravity) * CM_TO_M;
