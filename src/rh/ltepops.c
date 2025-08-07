@@ -414,7 +414,7 @@ void SetLTEQuantities_ctx(RHContext *ctx)
 
       /* --- Compute the fixed rates and store in Cij -- ------------ */
 
-      if (atom->Nfixed > 0) FixedRate(atom);
+      if (atom->Nfixed > 0) FixedRate_ctx(atom, ctx);
     }
   }
 }

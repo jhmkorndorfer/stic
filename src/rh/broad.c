@@ -14,7 +14,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "rh.h"
+// #include "rh.h"
+#include "rhf1d.h"
 #include "atom.h"
 #include "atmos.h"
 #include "constant.h"
@@ -145,6 +146,128 @@ void VanderWaals(AtomicLine *line, double *GvdW)
   for (k = 0;  k < atmos.Nspace;  k++) GvdW[k] *= atmos.H->n[0][k];
 }
 /* ------- end ---------------------------- VanderWaals.c ----------- */
+
+
+/* ------- begin -------------------------- VanderWaals.c ----------- */
+
+void VanderWaals_ctx(AtomicLine *line, double *GvdW, RHContext *ctx)
+{
+  /* --- Compute van der Waals broadening in Lindholm theory with
+         Unsold's approximation for the interaction coefficient C_6.
+
+    See: Traving 1960, "Uber die Theorie der Druckverbreiterung
+           von Spektrallinien", p 91-97
+      -- Mihalas 1978, p. 282ff, and Table 9-1.
+
+         Gamma = 8.08 * vrel^3/5 * C_6^2/5 * atmosLocal->H.ntotal_neutral
+
+
+         Or with parametrization using Smirnov-Roueff potential.
+
+    See: DeRidder & van Rensbergen 1976, A&A Suppl. 23, 147-165
+
+         Gamma = alpha * T^{beta} * atmosLocal->H.ntotal_neutral 
+
+
+         Or with the Anstee, Barklem & O'Mara formalism.
+
+    See: Anstee & O'Mara 1995, MNRAS 276, 859-866
+         Barklem & O'Mara 1998, MNRAS 300, 863-871
+
+         Gamma =
+          (4/pi)^(alpha/2) Gam((4-alpha)/2) v_0 sigma(v_0)(vmean/v_0)^(1-alpha)
+
+                                                           -- ------- */
+
+  Atmosphere *atmosLocal = &ctx->atmos;
+
+  const char routineName[] = "VanderWaals_ctx";
+  register int k;
+
+  int     i, j, ic, Z;
+  double  vrel35_H, vrel35_He, fourPIeps0, deltaR, cross, gammaCorrH,
+          gammaCorrHe, *T = atmosLocal->T, C625;
+  Atom    *atom = line->atom;
+  Element *He = &atmosLocal->elements[1];
+
+  j = line->j;
+  i = line->i;
+
+  if (line->vdWaals == UNSOLD  || line->vdWaals == BARKLEM) {
+    fourPIeps0 = 4.0 * PI * EPSILON_0;
+
+    vrel35_He = pow(8.0*KBOLTZMANN/(PI * AMU * atom->weight) * 
+		    (1.0 + atom->weight/He->weight), 0.3);
+
+    Z = atom->stage[j] + 1;
+    for (ic = j + 1;  atom->stage[ic] < atom->stage[j]+1;  ic++);
+
+    deltaR = SQ(E_RYDBERG/(atom->E[ic] - atom->E[j])) -
+      SQ(E_RYDBERG/(atom->E[ic] - atom->E[i]));
+    C625  = pow(2.5 * (SQ(Q_ELECTRON)/fourPIeps0) * (ABARH/fourPIeps0) *
+		2*PI * SQ(Z*RBOHR)/HPLANCK * deltaR, 0.4);
+  }
+
+  switch (line->vdWaals) {
+  case UNSOLD:
+
+    /* --- Relative velocity of radiator and perturber with Maxwellian
+           velocity distributions --                   -------------- */
+
+    vrel35_H  = pow(8.0*KBOLTZMANN/(PI * AMU * atom->weight) * 
+		    (1.0 + atom->weight/atmosLocal->H->weight), 0.3);
+
+    cross = 8.08 * (line->cvdWaals[0]*vrel35_H +
+		    line->cvdWaals[2]*He->abund*vrel35_He) * C625;
+
+    for (k = 0;  k < atmosLocal->Nspace;  k++)
+      GvdW[k] = cross * pow(T[k], 0.3);
+
+    break;
+
+  case RIDDER_RENSBERGEN:
+
+    /* --- alpha = 1.0E-8 * cvdW[0]  (Hydrogen broadening)
+                 = 1.0E-9 * cvdW[1]  (Helium broadening) -- --------- */
+
+    gammaCorrH  = 1.0E-8 * CUBE(CM_TO_M) *
+      pow(1.0 + atmosLocal->H->weight/atom->weight, line->cvdWaals[1]);
+    gammaCorrHe = 1.0E-9 * CUBE(CM_TO_M) *
+      pow(1.0 + He->weight/atom->weight, line->cvdWaals[3]);
+
+    for (k = 0;  k < atmosLocal->Nspace;  k++)
+      GvdW[k] = gammaCorrH*line->cvdWaals[0] *
+	pow(T[k], line->cvdWaals[1]) + 
+	gammaCorrHe*line->cvdWaals[2] *
+	pow(T[k], line->cvdWaals[3]) * He->abund;
+
+    break;
+
+  case BARKLEM:
+
+    /* --- Use UNSOLD for the Helium contribution --   -------------- */
+
+    cross = 8.08 * line->cvdWaals[2]*He->abund*vrel35_He * C625;
+
+    for (k = 0;  k < atmosLocal->Nspace;  k++)
+      GvdW[k] = line->cvdWaals[0] *
+	pow(atmosLocal->T[k], (1.0 - line->cvdWaals[1])/2.0) +
+	cross * pow(T[k], 0.3);
+
+    break;
+
+  default:
+    sprintf(messageStr,
+	    "Unknown method for van der Waals broadening %d, line %d -> %d",
+	    line->vdWaals, line->j, line->i);
+    Error(ERROR_LEVEL_2, routineName, messageStr);
+  }
+  /* --- Multiply with the Hydrogen ground level population -- ------ */
+  for (k = 0;  k < atmosLocal->Nspace;  k++) GvdW[k] *= atmosLocal->H->n[0][k];
+}
+/* ------- end ---------------------------- VanderWaals_ctx.c ----------- */
+
+
 
 /* ------- begin -------------------------- Stark.c ----------------- */
 
@@ -318,6 +441,56 @@ void Damping(AtomicLine *line, double *adamp)
   free(Qelast);
 }
 /* ------- end ---------------------------- Damping.c --------------- */
+
+
+/* ------- begin -------------------------- Damping_ctx.c --------------- */
+
+void Damping_ctx(AtomicLine *line, double *adamp, RHContext *ctx)
+{
+  register int k;
+
+  double cDop, *Qelast;
+  Atom *atom;
+  Atmosphere *atmosLocal = &ctx->atmos;
+
+  cDop = (NM_TO_M * line->lambda0) / (4.0 * PI);
+
+  atom = line->atom;
+  Qelast = (double *) calloc(atmosLocal->Nspace, sizeof(double));
+
+  /* --- Add van der Waals broadening --             -------------- */
+
+  if ((line->cvdWaals[0] > 0.0) || (line->cvdWaals[2] > 0.0)) {
+    VanderWaals_ctx(line, adamp, ctx);
+    for (k = 0;  k < atmosLocal->Nspace;  k++) Qelast[k] += adamp[k];
+  }
+  /* --- Add Quadratic Stark broadening --           -------------- */
+
+  if (line->cStark != 0.0) {
+    Stark(line, adamp);
+    for (k = 0;  k < atmosLocal->Nspace;  k++) Qelast[k] += adamp[k];
+  }
+  /* --- Add Linear Stark broadening for hydrogen only -- --------- */
+
+  if (strstr(atom->ID, "H ")) {
+    StarkLinear(line, adamp);
+    for (k = 0;  k < atmosLocal->Nspace;  k++) Qelast[k] += adamp[k];
+  }
+  /* --- Store the total rate of elastic collisions in case of PRD  */
+
+  if (line->PRD  &&  line->Qelast != NULL) {
+    for (k = 0;  k < atmosLocal->Nspace;  k++)
+      line->Qelast[k] = Qelast[k];
+  }
+  for (k = 0;  k < atmosLocal->Nspace;  k++)
+    adamp[k] = (line->Grad + Qelast[k]) * cDop / atom->vbroad[k];
+
+  free(Qelast);
+}
+/* ------- end ---------------------------- Damping_ctx.c --------------- */
+
+
+
 
 /* ------- begin -------------------------- MolecularDamping.c ------ */
 

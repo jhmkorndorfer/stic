@@ -12,7 +12,8 @@
  
 #include <string.h>
 
-#include "rh.h"
+// #include "rh.h"
+#include "rhf1d.h"
 #include "atom.h"
 #include "atmos.h"
 #include "error.h"
@@ -83,6 +84,37 @@ void readMolecules(char *fileName)
   fclose(fp_molecules);
 }
 /* ------- end ---------------------------- readMolecules.c --------- */
+
+
+/* ------- begin -------------------------- readMolecules.c --------- */
+
+void readMolecules_ctx(char *fileName, RHContext *ctx)
+{
+  const char routineName[] = "readMolecules_ctx";
+  Atmosphere *atmosLocal = &ctx->atmos;
+
+  FILE  *fp_molecules;
+  XDR    xdrs;
+
+  if (!strcmp(fileName, "none")) return;
+
+  if ((fp_molecules = fopen(fileName, "r")) == NULL) {
+    sprintf(messageStr, "Unable to open intput file %s", fileName);
+    Error(ERROR_LEVEL_1, "readMolecules", messageStr);
+  }
+  xdrstdio_create(&xdrs, fp_molecules, XDR_DECODE);
+
+  if (!xdr_molecules(&xdrs, atmosLocal->molecules)) {
+    sprintf(messageStr, "Unable to read from input file %s", fileName);
+    Error(ERROR_LEVEL_2, routineName, messageStr);
+  }
+
+  xdr_destroy(&xdrs);
+  fclose(fp_molecules);
+}
+/* ------- end ---------------------------- readMolecules.c --------- */
+
+
 
 /* ------- begin -------------------------- xdr_molecules.c --------- */
 

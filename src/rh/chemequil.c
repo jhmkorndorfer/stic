@@ -402,6 +402,310 @@ void ChemicalEquilibrium(int NmaxIter, double iterLimit)
 }
 /* ------- end ---------------------------- ChemicalEquilibrium.c --- */
 
+
+/* ------- begin -------------------------- ChemicalEquilibrium_ctx.c --- */
+
+void ChemicalEquilibrium_ctx(int NmaxIter, double iterLimit, RHContext *ctx)
+{
+  const char routineName[] = "ChemicalEquilibrium";
+  register int k, i, j, nu;
+
+  Atmosphere *atmosLocal = &ctx->atmos;
+  // InputData *inputLocal = &ctx->input; Not used here.
+
+
+  char    tmpStr[7];
+  bool_t  quiet;
+  int     Nequation, **nucl_index, niter, Nnuclei, Ngdelay, Ngperiod,
+          Ngorder, Nmaxstage;
+  double *f, *a, *n, **df, *Phi, PhiHmin, fHmin, dnmax = 0.0,
+         *fn0, fraction, saha, *fjk, *dfjk;
+  struct  Ng *Ngn;
+  Atom *atom;
+  Molecule *molecule;
+  Element **nuclei;
+
+  getCPU(3, TIME_START, NULL);
+
+  /* --- Constant for Saha equation Hminus --          -------------- */
+
+  static const double CI = (HPLANCK/(2.0*PI*M_ELECTRON)) * (HPLANCK/KBOLTZMANN);
+
+
+  /* --- Solve the chemical equilibrium equations. First,
+         determine for what atoms and molecules the equilibrium
+         equations have to be solved. --               -------------- */
+
+  /* --- Collect pointers to elements that can be bound in molecules. */
+
+  Nnuclei = 0;
+  nuclei  = (Element **) malloc(atmosLocal->Nelem * sizeof(Element *));
+  for (i = 0;  i < atmosLocal->Nelem;  i++) {
+    if (atmosLocal->elements[i].Nmolecule > 0) {
+      nuclei[Nnuclei++] = &atmosLocal->elements[i];
+    }
+    //   printf("%d %d\n", i,atmosLocal->elements[i].Nmolecule);
+  }
+  nuclei = (Element **) realloc(nuclei, Nnuclei * sizeof(Element *));
+
+  /* --- Check that first Nucleus is hydrogen --       -------------- */
+
+  if (!strstr(nuclei[0]->ID, "H ")) {
+    sprintf(messageStr, "First nucleus must be H not %s "
+	    "(check H2.molecule)", nuclei[0]->ID);
+    Error(ERROR_LEVEL_2, routineName, messageStr);
+  }
+
+  Nmaxstage = 0;
+  for (j = 0;  j < Nnuclei;  j++) {
+    if (nuclei[j]->model != NULL) {
+      if (nuclei[j]->model->stage[0] > 0) {
+	sprintf(messageStr,
+		"Model for element %s does not have a neutral stage\n"
+		" needed for molecular formation\n",
+		nuclei[j]->ID);
+	Error(ERROR_LEVEL_2, routineName, messageStr);
+      }
+    } else
+      Nmaxstage = MAX(Nmaxstage, nuclei[j]->Nstage);
+  }
+  if (Nmaxstage) {
+    fjk  = (double *) malloc(Nmaxstage * sizeof(double));
+    dfjk = (double *) malloc(Nmaxstage * sizeof(double));
+  }
+
+  /* --- Quantity nucl_index[i][j] stores the index (in array nuclei)
+         of the jth element bound in molecule i --     -------------- */
+
+  nucl_index = (int **) malloc(atmosLocal->Nmolecule * sizeof(int *));
+  for (i = 0;  i < atmosLocal->Nmolecule;  i++) {
+    molecule = &atmosLocal->molecules[i];
+    nucl_index[i] = (int *) malloc(molecule->Nelement * sizeof(int));
+    for (j = 0;  j < molecule->Nelement;  j++) {
+      for (nu = 0;  nu < Nnuclei;  nu++) {
+	if (nuclei[nu] == &atmosLocal->elements[molecule->pt_index[j]]) {
+	  nucl_index[i][j] = nu;
+	  break;
+	}
+      }
+    }
+  }
+  /* --- Number of equations --                        -------------- */
+
+  Nequation = Nnuclei + atmosLocal->Nmolecule;
+
+  /* --- Allocate temporary storage space.
+         Quantities for the Newton Raphson --          -------------- */
+
+  f  = (double *) malloc(Nequation * sizeof(double));
+  n  = (double *) calloc(Nequation, sizeof(double));
+  df = matrix_double(Nequation, Nequation);
+  a  = (double *) calloc(Nequation, sizeof(double));
+
+  /* --- Equilibrium constant for each molecule, and neutral
+         fraction for each nucleus --                  -------------- */
+
+  Phi = (double *) malloc(atmosLocal->Nmolecule * sizeof(double));
+  fn0 = (double *) malloc(Nnuclei * sizeof(double));
+
+  /* --- Initialize structure for Ng convergence acceleration -- ---- */
+
+  Ngn = NgInit(Nequation, Ngdelay=NG_CHEM_DELAY,
+	       Ngorder=NG_CHEM_ORDER, Ngperiod=NG_CHEM_PERIOD, n);
+
+  /* --- Go through spatial grid and solve (local) equations -- ----- */
+
+  for (k = 0;  k < atmosLocal->Nspace;  k++) {
+
+    /* --- Collect for each atom the population fraction of
+           the neutral stage --                        -------------- */
+
+    for (i = 0;  i < Nnuclei;  i++) {
+      if ((atom = nuclei[i]->model) == NULL) {
+	/* --- If no atomic model is present for this nucleus -- ---- */
+
+	getfjk_ctx(nuclei[i], atmosLocal->ne[k], k, fjk, dfjk, ctx);
+	fn0[i] = fjk[0];
+	a[i]   = nuclei[i]->abund * atmosLocal->nHtot[k];
+      } else {
+	//	printf("nlevels = %d\n", atom->Nlevel);
+
+	/* --- Atomic model has been read for this nucleus -- ------- */
+
+	fn0[i] = 0.0;
+	for (j = 0;  j < atom->Nlevel;  j++) {
+	  if (atom->stage[j] > 0) break;
+	  if (atom->active &&
+	      atom->initial_solution != OLD_POPULATIONS)
+	    fn0[i] += atom->nstar[j][k];
+	  else{
+	    fn0[i] += atom->n[j][k];
+	   
+	  }
+	 
+	}
+	fn0[i] /= atom->ntotal[k];
+	a[i]    = atom->abundance * atmosLocal->nHtot[k];
+      }
+    }
+    // printf("out! %d\n\n", k);
+    PhiHmin = 0.25*pow(CI/atmosLocal->T[k], 1.5) *
+      exp(E_ION_HMIN / (KBOLTZMANN * atmosLocal->T[k]));
+    fHmin = atmosLocal->ne[k] * fn0[0]*PhiHmin;
+    
+    /* --- Equilibrium constant for each molecule at this location -- */
+
+    for (i = 0;  i < atmosLocal->Nmolecule;  i++) 
+      Phi[i] = equilconstant(&atmosLocal->molecules[i], atmosLocal->T[k]);
+
+    /* --- Initial solution of atomic number densities, and
+           the molecules. Assume everything is dissociated -- ------- */
+
+    for (i = 0;  i < Nnuclei;  i++) n[i] = a[i];
+    for (i = 0;  i < atmosLocal->Nmolecule;  i++) n[Nnuclei+i] = 0.0;
+
+    /* --- Reset counter in Ng structure, store initial solution - -- */
+
+    Ngn->count = 1;
+    for (i = 0;  i < Nequation;  i++)  Ngn->previous[0][i] = n[i];
+
+    /* --- Iterate to convergence, with maximum number NmaxIter -- -- */
+
+    niter = 1;
+    while (niter <= NmaxIter) {
+      for (i = 0;  i < Nequation;  i++) {
+	f[i] = n[i] - a[i];
+	for (j = 0;  j < Nequation;  j++) df[i][j] = 0.0;
+        df[i][i] = 1.0;
+      }
+      /* --- Add nHminus to the H number conservation equation -- --- */ 
+
+      f[0] += fHmin * n[0];
+      df[0][0] += fHmin;
+
+      /* --- Fill in the rest of the population matrix f[] and its
+             derivative df[][] --                      -------------- */
+
+      for (i = 0;  i < atmosLocal->Nmolecule;  i++) {
+        molecule = &atmosLocal->molecules[i];
+        saha = Phi[i];
+	for (j = 0;  j < molecule->Nelement;  j++) {
+	  nu = nucl_index[i][j];
+          saha *= pow(fn0[nu] * n[nu], molecule->pt_count[j]);
+
+	  /* --- Contributions to equation of conservation for the
+                 nuclei in this molecule --            -------------- */
+
+	  f[nu] += molecule->pt_count[j] * n[Nnuclei + i];
+	}
+	/* --- Saha equation for this molecule --      -------------- */
+
+        saha /= pow(atmosLocal->ne[k], molecule->charge);
+        f[Nnuclei + i] -= saha;
+
+        /* --- Fill the derivatives matrix --          -------------- */
+
+        for (j = 0;  j < molecule->Nelement;  j++) {
+	  nu = nucl_index[i][j];
+          df[nu][Nnuclei + i] += molecule->pt_count[j];
+	  df[Nnuclei + i][nu] = -saha * (molecule->pt_count[j]/n[nu]);
+	}
+      }
+      /* --- Solve linearized equations --             -------------- */
+      mpi.stop = false;
+      SolveLinearEq(Nequation, df, f, true);
+      
+      if(mpi.stop){
+	fprintf(stderr,"chemequil: Singular matrix!\n");
+	fprintf(stderr, "   %d %f %e, trying SVD\n", k, atmosLocal->T[k], atmosLocal->nHtot[k]);
+	solveLinearCXX(Nequation, df, f, TRUE);
+	mpi.stop = false;
+      }
+      
+      for (i = 0;  i < Nequation;  i++)  n[i] -= f[i];
+
+      /* --- Check convergence and accelerate if appropriate -- ----- */
+
+      Accelerate(Ngn, n);
+      sprintf(messageStr,
+	      "\n%s-- Chemical equilibrium: depth %3.3d, iteration %d",
+	      (niter == 1) ? "\n" : "", k, niter);
+
+      if ((dnmax = MaxChange(Ngn, messageStr, quiet=TRUE)) <= iterLimit)
+	break;
+      niter++;
+    }
+    if (dnmax > iterLimit) {
+      sprintf(messageStr, "Iteration not converged:\n"
+              " temperature: %6.1f [K], \n"
+	      " density: %9.3E [m^-3],\n dnmax: %9.3E\n",
+	      atmosLocal->T[k], atmosLocal->nHtot[k], dnmax);
+      Error(WARNING, "ChemicalEquilibrium", messageStr);
+    }
+    /* --- Store population numbers nuclei --          -------------- */
+
+    for (i = 0;  i < Nnuclei;  i++) {
+      if ((atom = nuclei[i]->model) != NULL) {
+	fraction = n[i] / atom->ntotal[k];
+
+	for (j = 0;  j < atom->Nlevel;  j++) {
+	  atom->nstar[j][k] *= fraction;
+	  if (atom->n != atom->nstar) atom->n[j][k] *= fraction;
+	}
+	atom->ntotal[k] = n[i];
+      }
+    }
+    /* --- Store Hmin density --                       -------------- */
+
+    atmosLocal->nHmin[k] = atmosLocal->ne[k] * (n[0] * PhiHmin);
+
+    /* --- Store molecular densities --                -------------- */
+
+    for (i = 0;  i < atmosLocal->Nmolecule;  i++)
+      atmosLocal->molecules[i].n[k] = n[Nnuclei + i];
+  }
+
+  /* --- Check whether active atom, if present, is in list of nuclei.
+         If so print out a warning --                  -------------- */
+  /*
+  for (nu = 0;  nu < Nnuclei;  nu++) {
+    atom = nuclei[nu]->model;
+    
+    if (atom && atom->active) {
+      sprintf(messageStr, "\nReduced number density of"
+	      " active atom %s due to molecule%s\n  ",
+	      atom->ID, (nuclei[nu]->Nmolecule > 1) ? "s" : "");
+      for (i = 0;  i < nuclei[nu]->Nmolecule;  i++) {
+	sprintf(tmpStr, "%s%s",
+		atmosLocal->molecules[nuclei[nu]->mol_index[i]].ID,
+		(i == nuclei[nu]->Nmolecule - 1) ? "\n\n" : ", ");
+	strcat(messageStr, tmpStr);
+      }
+      Error(MESSAGE, routineName, messageStr);
+    }
+  }
+  */
+  /* --- Clean up --                                   -------------- */
+
+  free(f);     free(n);     free(a);
+  free(Phi);   free(fn0);
+  freeMatrix((void **) df);
+
+  NgFree(Ngn);
+  free(nuclei);
+  for (i = 0;  i < atmosLocal->Nmolecule;  i++) free(nucl_index[i]);
+  free(nucl_index);
+
+  if (Nmaxstage) {
+    free(fjk);
+    free(dfjk);
+  }
+  getCPU(3, TIME_POLL, "Chemical equilibrium");
+}
+/* ------- end ---------------------------- ChemicalEquilibrium_ctx.c --- */
+
+
+
 /* ------- begin -------------------------- partfunction.c ---------- */
 
 double partfunction(struct Molecule *molecule, double T)

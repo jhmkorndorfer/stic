@@ -16,7 +16,8 @@
  
 #include <math.h>
 
-#include "rh.h"
+// #include "rh.h"
+#include "rhf1d.h"
 #include "atom.h"
 #include "atmos.h"
 #include "constant.h"
@@ -43,3 +44,18 @@ void Thomson(double *chi)
     chi[k] = atmos.ne[k] * sigma;
 }
 /* ------- end ---------------------------- Thomson.c --------------- */
+
+/* ------- begin -------------------------- Thomson_ctx.c --------------- */
+
+void Thomson_ctx(double *chi, RHContext *ctx)
+{
+  register int k;
+  Atmosphere *atmosLocal = &ctx->atmos;
+
+  double sigma = 8.0*PI/3.0 * pow(Q_ELECTRON/(sqrt(4.0*PI*EPSILON_0) *
+					      (sqrt(M_ELECTRON)*CLIGHT)), 4);
+
+  for (k = 0;  k < atmosLocal->Nspace;  k++)
+    chi[k] = atmosLocal->ne[k] * sigma;
+}
+/* ------- end ---------------------------- Thomson_ctx.c --------------- */

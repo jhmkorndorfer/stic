@@ -308,6 +308,77 @@ void getfjk(Element *element, double ne, int k, double *fjk, double *dfjk)
 }
 /* ------- end ---------------------------- getfjk.c ---------------- */
 
+
+/* ------- begin -------------------------- getfjk_ctx.c ---------------- */
+
+void getfjk_ctx(Element *element, double ne, int k, double *fjk, double *dfjk, RHContext *ctx)
+{
+  register int i, j;
+
+  Atmosphere *atmosLocal = &ctx->atmos;
+
+  double C1, sum1, sum2, CT_ne, Uk, Ukp1;
+  Atom *atom;
+
+  /* --- Get the fractional population f_j(ne, T) = N_j/N for element
+         element and its partial derivative with ne. -- ------------- */
+
+
+  if (element->model &&  element->model->active && element->model == &atmosLocal->atoms[0]) {
+
+    /* --- If element has NLTE populations then use these -- -------- */
+
+    atom = element->model;
+
+    for (j = 0;  j < element->Nstage;  j++) {
+      fjk[j]  = 0.0;
+      dfjk[j] = 0.0;
+    }
+    for (i = 0;  i < atom->Nlevel;  i++)
+
+      /* --- Correction (CMO): no multiplication with stage[i] -- --- */
+
+      
+      // fjk[atom->stage[i]] += atom->stage[i] * atom->n[i][k];
+      fjk[atom->stage[i]] += atom->n[i][k];
+
+    for (j = 0;  j < element->Nstage;  j++) fjk[j] /= atom->ntotal[k];
+  } else {
+
+    /* --- Else use estimate from LTE from Kurucz partition
+           functions --                                -------------- */
+
+    C1 = (HPLANCK/(2.0*PI*M_ELECTRON)) * (HPLANCK/KBOLTZMANN);
+
+    CT_ne   = 2.0 * pow(C1/atmosLocal->T[k], -1.5) / ne;
+    sum1    = 1.0;
+    sum2    = 0.0;
+    fjk[0]  = 1.0;
+    dfjk[0] = 0.0;
+
+    Uk = getKuruczpf_ctx(element, 0, k, ctx);
+    for (j = 1;  j < element->Nstage;  j++) {
+      Ukp1 = getKuruczpf_ctx(element, j, k, ctx);
+
+      fjk[j]  = fjk[j-1] * CT_ne *
+	exp(Ukp1 - Uk - element->ionpot[j-1]/(KBOLTZMANN*atmosLocal->T[k]));
+      dfjk[j] = -j * fjk[j] / ne;
+      sum1   += fjk[j];
+      sum2   += dfjk[j];
+      Uk      = Ukp1;
+    }
+
+    for (j = 0;  j < element->Nstage;  j++) {
+      fjk[j]  /= sum1;
+      dfjk[j]  = (dfjk[j] - fjk[j] * sum2) / sum1;
+    }
+  }
+}
+/* ------- end ---------------------------- getfjk_ctx.c ---------------- */
+
+
+
+
 /* ------- begin -------------------------- getKuruczpf.c ----------- */
 
 double getKuruczpf(Element *element, int stage, int k)

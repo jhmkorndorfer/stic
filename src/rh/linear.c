@@ -23,6 +23,7 @@ void Linear(int Ntable, double *xtable, double *ytable,
 	    int N, double *x, double *y, bool_t hunt)
 {
   register int n;
+  
 
   bool_t ascend;
   int    j = 0;

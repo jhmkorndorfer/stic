@@ -71,6 +71,7 @@ void splineCoef(int N, double *x, double *y)
 void splineEval(int N, double *x, double *y, bool_t hunt)
 {
   register int n;
+  //POSSIBLE BUGS HERE!!
 
   int    j = 0;
   double hj, fx, fx1;
@@ -117,7 +118,7 @@ double cent_deriv_steffen(double odx,double dx,
 void splineHermite(int const N, double* const x, double* const y, int const N1, double* const x1, double* const y1)
 {
   // Coded by J. de la Cruz Rodriguez (ISP-SU, 2024) //
-  
+  //POSSIBLE BUGS HERE!!
   register int n, j;
   int dn = 1, n0 = 0, n1 = N-1;
   int dj = 1, j0 = 0, j1 = N1-1;

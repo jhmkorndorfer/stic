@@ -4,7 +4,13 @@
 
 ### Accomplishments (including missing notes)
 - Currently refactoring rhf1d to try to make it threadsafe...
-- In rhf1d, refactoring done up to Initvarious_ctx Line 239, rhf1d.c.
+- In rhf1d, refactoring done up to Background_j_ctx line 268, rhf1d.c. Still need to test Background_j_ctx
+    - Stopping at VanderWaals_ctx inside Damping_ctx, broad.c.
+
+- Maybe in the future look into:
+    - LUdecomp
+    - SolveLinearEq
+    - Accelerate
 
 ### Challenges
 - 
@@ -13,7 +19,7 @@
 
 ### Accomplishments (including missing notes)
 - Currently refactoring rhf1d to try to make it threadsafe...
-- In rhf1d, refactoring done up to init_Background_j_ctx(ctx); Line 238.
+- In rhf1d, refactoring done up to init_Background_j_ctx(ctx); line 238.
 
 ### Challenges
 - 

@@ -128,7 +128,38 @@ extern "C" {
   double getKuruczpf_ctx(Element *element, int stage, int k, RHContext *ctx);
   void SetLTEQuantities_ctx(RHContext *ctx);
   void LTEpops_ctx(Atom *atom, bool_t Debeye, RHContext *ctx);
-  void CollisionRate_ctx(struct Atom *atom, char **fp_atom, RHContext *ctx)
+  void CollisionRate_ctx(struct Atom *atom, char **fp_atom, RHContext *ctx);
+  double ar85cea_ctx(int i, int j, int k, struct Atom *atom, RHContext *ctx);
+  double summers_ctx(int i, int j, double nne, struct Atom *atom, RHContext *ctx);
+  int atomnr_ctx(char ID[ATOM_ID_WIDTH+1], RHContext *ctx);
+  void atomnm_ctx(int anr,char *cseq, RHContext *ctx);
+  void FixedRate_ctx(Atom *atom, RHContext *ctx);
+  void FixedRateOne_ctx(Atom *atom, int k, RHContext *ctx);
+  void readMolecules_ctx(char *fileName, RHContext *ctx);
+  void ChemicalEquilibrium_ctx(int NmaxIter, double iterLimit, RHContext *ctx);
+  void getfjk_ctx(Element *element, double ne, int k, double *fjk, double *dfjk, RHContext *ctx);
+  void Thomson_ctx(double *chi, RHContext *ctx);
+  bool_t Hminus_bf_ctx(double lambda, double *chi, double *eta, RHContext *ctx);
+  bool_t Hminus_ff_ctx(double lambda, double *chi, RHContext *ctx);
+  bool_t Hminus_ff_long_ctx(double lambda, double *chi, RHContext *ctx);
+  bool_t OH_bf_opac_ctx(double lambda, double *chi, double *eta, RHContext *ctx);
+  bool_t CH_bf_opac_ctx(double lambda, double *chi, double *eta, RHContext *ctx);
+  bool_t Hydrogen_bf_ctx(double lambda, double *chi, double *eta, RHContext *ctx);
+  void Hydrogen_ff_ctx(double lambda, double *chi, RHContext *ctx);
+  bool_t Rayleigh_ctx(double lambda, Atom *atom, double *scatt, RHContext *ctx);
+  bool_t H2plus_ff_ctx(double lambda, double *chi, RHContext *ctx);
+  bool_t Rayleigh_H2_ctx(double lambda, double *scatt, RHContext *ctx);
+  bool_t H2minus_ff_ctx(double lambda, double *chi, RHContext *ctx);
+  bool_t Metal_bf_ctx(double lambda, int Nmetal, struct Atom *metals, double *chi, double *eta, RHContext *ctx);
+  flags passive_bb_ctx(double lambda, int nspect, int mu, bool_t to_obs, double *chi, double *eta, double *chip, RHContext *ctx);
+  void Damping_ctx(AtomicLine *line, double *adamp, RHContext *ctx);
+  void VanderWaals_ctx(AtomicLine *line, double *GvdW, RHContext *ctx);
+
+
+
+
+
+
 
 
 

@@ -930,9 +930,9 @@ void Background_j_ctx(bool_t write_analyze_output, bool_t equilibria_only, RHCon
   SetLTEQuantities_ctx(ctx);
 
   if (inputLocal->NonICE)
-    readMolecules(MOLECULAR_CONCENTRATION_FILE);
+    readMolecules_ctx(MOLECULAR_CONCENTRATION_FILE, ctx);
   else{
-    ChemicalEquilibrium(N_MAX_CHEM_ITER, CHEM_ITER_LIMIT);
+    ChemicalEquilibrium_ctx(N_MAX_CHEM_ITER, CHEM_ITER_LIMIT, ctx);
     if(mpi.stop){
       return;
     }
@@ -1018,7 +1018,7 @@ void Background_j_ctx(bool_t write_analyze_output, bool_t equilibria_only, RHCon
          in non-relativistic limit so we compute it only once -- ---- */
 
   thomson = (double *) malloc(atmosLocal->Nspace * sizeof(double));
-  Thomson(thomson);
+  Thomson_ctx(thomson, ctx);
 
   /* --- Check whether an atomic model is present for He -- --------- */
 
@@ -1049,13 +1049,13 @@ void Background_j_ctx(bool_t write_analyze_output, bool_t equilibria_only, RHCon
     }
     /* --- Negative hydrogen ion, bound-free and free-free -- ------- */
 
-    if (Hminus_bf(wavelength, chi, eta)) {
+    if (Hminus_bf_ctx(wavelength, chi, eta, ctx)) {
       for (k = 0;  k < atmosLocal->Nspace;  k++) {
 	chi_ai[k] += chi[k];
 	eta_ai[k] += eta[k];
       }
     }
-    if (Hminus_ff(wavelength, chi)) {
+    if (Hminus_ff_ctx(wavelength, chi, ctx)) {
       for (k = 0;  k < atmosLocal->Nspace;  k++) {
 	chi_ai[k] += chi[k];
 	eta_ai[k] += chi[k] * Bnu[k];
@@ -1073,13 +1073,13 @@ void Background_j_ctx(bool_t write_analyze_output, bool_t equilibria_only, RHCon
     }
     /* --- Opacities from bound-free transitions in OH and CH -- ---- */
 
-    if (OH_bf_opac(wavelength, chi, eta)) {
+    if (OH_bf_opac_ctx(wavelength, chi, eta, ctx)) {
       for (k = 0;  k < atmosLocal->Nspace;  k++) {
 	chi_ai[k] += chi[k];
 	eta_ai[k] += eta[k];
       }
     }
-    if (CH_bf_opac(wavelength, chi, eta)) {
+    if (CH_bf_opac_ctx(wavelength, chi, eta, ctx)) {
       for (k = 0;  k < atmosLocal->Nspace;  k++) {
 	chi_ai[k] += chi[k];
 	eta_ai[k] += eta[k];
@@ -1087,34 +1087,34 @@ void Background_j_ctx(bool_t write_analyze_output, bool_t equilibria_only, RHCon
     }
     /* --- Neutral Hydrogen Bound-Free and Free-Free --  ------------ */
 
-    if (Hydrogen_bf(wavelength, chi, eta)) {
+    if (Hydrogen_bf_ctx(wavelength, chi, eta, ctx)) {
       for (k = 0;  k < atmosLocal->Nspace;  k++) {
 	chi_ai[k] += chi[k];
 	eta_ai[k] += eta[k];
       }
     }
-    Hydrogen_ff(wavelength, chi);
+    Hydrogen_ff_ctx(wavelength, chi, ctx);
     for (k = 0;  k < atmosLocal->Nspace;  k++) {
       chi_ai[k] += chi[k]; 
       eta_ai[k] += chi[k] * Bnu[k];
     }
     /* --- Rayleigh scattering by neutral hydrogen --  -------------- */
 
-    if (Rayleigh(wavelength, atmosLocal->H, scatt)) {
+    if (Rayleigh_ctx(wavelength, atmosLocal->H, scatt, ctx)) {
       for (k = 0;  k < atmosLocal->Nspace;  k++) {
 	sca_ai[k]  += scatt[k];
       }
     }
     /* --- Rayleigh scattering by neutral helium --    -------------- */
 
-    if (He && Rayleigh(wavelength, He, scatt)) {
+    if (He && Rayleigh_ctx(wavelength, He, scatt, ctx)) {
       for (k = 0;  k < atmosLocal->Nspace;  k++) {
 	sca_ai[k]  += scatt[k];
       }
     }
     /* --- Absorption by H + H^+ (referred to as H2plus free-free) -- */
 
-    if (H2plus_ff(wavelength, chi)) {
+    if (H2plus_ff_ctx(wavelength, chi, ctx)) {
       for (k = 0;  k < atmosLocal->Nspace;  k++) {
 	chi_ai[k] += chi[k]; 
 	eta_ai[k] += chi[k] * Bnu[k];
@@ -1123,12 +1123,12 @@ void Background_j_ctx(bool_t write_analyze_output, bool_t equilibria_only, RHCon
     /* --- Rayleigh scattering and free-free absorption by
            molecular hydrogen --                       -------------- */
 
-    if (Rayleigh_H2(wavelength, scatt)) {
+    if (Rayleigh_H2_ctx(wavelength, scatt, ctx)) {
       for (k = 0;  k < atmosLocal->Nspace;  k++) {
 	sca_ai[k]  += scatt[k];
       }
     }
-    if (H2minus_ff(wavelength, chi)) {
+    if (H2minus_ff_ctx(wavelength, chi, ctx)) {
       for (k = 0;  k < atmosLocal->Nspace;  k++) {
 	chi_ai[k] += chi[k]; 
 	eta_ai[k] += chi[k] * Bnu[k];
@@ -1145,7 +1145,7 @@ void Background_j_ctx(bool_t write_analyze_output, bool_t equilibria_only, RHCon
     /* --- Note: Hydrogen bound-free opacities are calculated in
            routine Hydrogen_bf --                      -------------- */
 
-    Metal_bf(wavelength, atmosLocal->Natom-1, atmosLocal->atoms+1, chi, eta);
+    Metal_bf_ctx(wavelength, atmosLocal->Natom-1, atmosLocal->atoms+1, chi, eta, ctx);
     for (k = 0;  k < atmosLocal->Nspace;  k++) {
       chi_ai[k] += chi[k] * metal_fudge;
       eta_ai[k] += eta[k] * metal_fudge;
@@ -1193,8 +1193,8 @@ void Background_j_ctx(bool_t write_analyze_output, bool_t equilibria_only, RHCon
                  hydrogen) --                          -------------- */
 
 	  if (inputLocal->allow_passive_bb) {
-	    backgrflags = passive_bb(wavelength, nspect, mu, to_obs,
-				     chi, eta, chip);
+	    backgrflags = passive_bb_ctx(wavelength, nspect, mu, to_obs,
+				     chi, eta, chip, ctx);
 	    if (backgrflags.hasline) {
 	      atmosLocal->backgrflags[nspect].hasline = TRUE;
 	      if (backgrflags.ispolarized) {
