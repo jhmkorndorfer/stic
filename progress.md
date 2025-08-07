@@ -1,5 +1,14 @@
 # Daily Progress Log
 
+## Date: ***07/08/2025***
+
+### Accomplishments (including missing notes)
+- Currently refactoring rhf1d to try to make it threadsafe...
+- In rhf1d, refactoring done up to Initvarious_ctx Line 239, rhf1d.c.
+
+### Challenges
+- 
+
 ## Date: ***06/08/2025***
 
 ### Accomplishments (including missing notes)

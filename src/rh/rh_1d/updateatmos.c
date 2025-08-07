@@ -40,6 +40,20 @@ void Initvarious(){
   }
 }
 
+void Initvarious_ctx(RHContext *ctx){
+  int    nact;
+  Atom  *atom;
+  
+  Atmosphere *atmosLocal = &ctx->atmos;
+
+
+  io.atom_file_pos = (long *) malloc(atmosLocal->Nactiveatom * sizeof(long));
+  for (nact = 0; nact < atmosLocal->Nactiveatom; nact++) {
+    atom = atmosLocal->activeatoms[nact];
+    // io.atom_file_pos[nact] = ftell(atom->fp_input);
+  }
+}
+
 
 
 void UpdateAtmosDep(void) {

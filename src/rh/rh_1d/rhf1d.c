@@ -234,10 +234,10 @@ bool_t rhf1d(RHContext* ctx, float muz, int rhs_ndep, double *rhs_T, double *rhs
     // readMolecularModels();
     readMolecularModels_ctx(ctx);
     SortLambda_j_ctx(mynw, mylambda, ctx);
-
     init_Background_j_ctx(ctx);
-    Initvarious();
     
+    Initvarious_ctx(ctx);
+
     /* --- Save ctx->geometry values to change back after --    ------------ */
     
     save_Nrays = ctx->atmos.Nrays;   save_wmu = ctx->geometry.wmu[0];
