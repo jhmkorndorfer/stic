@@ -121,6 +121,7 @@ extern "C" {
   void getUnsoldcross_ctx(RLK_Line *rlk, RHContext *ctx);
   bool_t getBarklemcross_ac_ctx(Barklemstruct *bs, RLK_Line *rlk, RHContext *ctx);
   void Initvarious_ctx(RHContext *ctx);
+  void UpdateAtmosDep_ctx(RHContext *ctx);
 
 
 

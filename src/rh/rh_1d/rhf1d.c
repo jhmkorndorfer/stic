@@ -241,18 +241,17 @@ bool_t rhf1d(RHContext* ctx, float muz, int rhs_ndep, double *rhs_T, double *rhs
     Initvarious_ctx(ctx);
 
     /* --- Save ctx->geometry values to change back after --    ------------ */
-    
     save_Nrays = ctx->atmos.Nrays;   save_wmu = ctx->geometry.wmu[0];
     save_muz = ctx->geometry.muz[0]; save_mux = ctx->geometry.mux[0]; save_muy = ctx->geometry.muy[0];
   }
   
   firsttime = FALSE;
-  
+  printf("I GOT HERE 249!!!!\n");
   if(ctx->input.solve_ne >= ITERATION_EOS){
     if(ctx->atmos.atoms[0].active) ctx->atmos.ne_flag = TRUE;
-    if(save_pop && save_pop->ne_dep){
+    if(ctx->save_popp && ctx->save_popp->ne_dep){
       double *tmp1 = (double*)calloc(ctx->atmos.Nspace,sizeof(double));
-      hermitian_interpolation((int)ctx->atmos.Nspace, save_pop->tau_ref, save_pop->ne_dep,
+      hermitian_interpolation((int)ctx->atmos.Nspace, ctx->save_popp->tau_ref, ctx->save_popp->ne_dep,
 			      (int)ctx->atmos.Nspace, ctx->geometry.tau_ref, tmp1, 1);
       
       
@@ -260,10 +259,12 @@ bool_t rhf1d(RHContext* ctx, float muz, int rhs_ndep, double *rhs_T, double *rhs
       free(tmp1);
     }
   }
-  
+  printf("I GOT HERE 262!!!!\n");
   /* --- Reallocate stuff and compute background opac --- */
-  
-  UpdateAtmosDep();
+
+
+  UpdateAtmosDep_ctx(ctx);
+  printf("I GOT HERE 268!!!!\n");
   Background_j(write_analyze_output=FALSE, equilibria_only=FALSE);
   //convertScales(&ctx->atmos, &ctx->geometry);
   //if(ctx->atmos.H->NLTEpops) hydrostat[0] = TRUE;

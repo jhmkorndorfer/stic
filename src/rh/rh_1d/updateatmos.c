@@ -45,9 +45,10 @@ void Initvarious_ctx(RHContext *ctx){
   Atom  *atom;
   
   Atmosphere *atmosLocal = &ctx->atmos;
+  rhinfo *ioLocal = &ctx->io;
 
 
-  io.atom_file_pos = (long *) malloc(atmosLocal->Nactiveatom * sizeof(long));
+  ioLocal->atom_file_pos = (long *) malloc(atmosLocal->Nactiveatom * sizeof(long));
   for (nact = 0; nact < atmosLocal->Nactiveatom; nact++) {
     atom = atmosLocal->activeatoms[nact];
     // io.atom_file_pos[nact] = ftell(atom->fp_input);
@@ -335,3 +336,297 @@ void UpdateAtmosDep(void) {
   return;
 }
 
+
+void UpdateAtmosDep_ctx(RHContext *ctx) {
+/* Updates the atmos-dependent factors for the atoms and molecules */
+  const char routineName[] = "UpdateAtmosDep_ctx";
+  int       ierror, nact, k, kr, la, Nlamu;
+  double    vtherm;
+  Atom     *atom;
+  Molecule *molecule;
+  AtomicLine    *line;
+  MolecularLine *mrt;
+
+  // Globals:
+// extern Atmosphere atmos;
+// extern Geometry geometry;
+// extern InputData input;
+// extern CommandLine commandline;
+// extern char messageStr[];
+// extern Spectrum spectrum;
+// extern rhinfo io;
+
+  Atmosphere *atmosLocal = &ctx->atmos;
+  InputData *inputLocal = &ctx->input;
+  // Spectrum *spectrumLocal = &ctx->spectrum; Not used here.
+  // BackgroundData *bgdatLocal = &ctx->bgdat; // not used here.
+  // rhinfo *ioLocal = &ctx->io; Not needed it seems...
+  // rhbgmem *bmemLocal = ctx->bmem;
+
+
+
+  /* Put back initial Stokes mode */
+  // input.StokesMode = mpi.StokesMode_save;
+
+  //  mpi.zcut_hist[mpi.task] = mpi.zcut;
+  /* Recalculate magnetic field projections */
+  if (atmosLocal->Stokes) {
+    if (atmosLocal->cos_gamma != NULL) {
+      freeMatrix((void **) atmosLocal->cos_gamma);
+      atmosLocal->cos_gamma = NULL;
+    }
+    if (atmosLocal->cos_2chi != NULL) {
+      freeMatrix((void **) atmosLocal->cos_2chi);
+      atmosLocal->cos_2chi = NULL;
+    }
+    if (atmosLocal->sin_2chi != NULL) {
+      freeMatrix((void **) atmosLocal->sin_2chi);
+      atmosLocal->sin_2chi = NULL;
+    }
+    Bproject();
+  }
+  
+  /* Update atmos-dependent atomic  quantities --- --------------- */
+  for (nact = 0; nact < atmosLocal->Natom; nact++) {
+    atom = &atmosLocal->atoms[nact];
+    /* Reallocate some stuff (because of varying Nspace) */
+    atom->ntotal = (double *) realloc(atom->ntotal, atmosLocal->Nspace * sizeof(double));
+    atom->vbroad = (double *) realloc(atom->vbroad, atmosLocal->Nspace * sizeof(double));
+    
+    if (atom->nstar != NULL){
+      //fprintf(stderr,"%s %p\n", atom->ID, atom->nstar);
+      freeMatrix((void **) atom->nstar);
+    }
+    atom->nstar = matrix_double(atom->Nlevel, atmosLocal->Nspace);
+
+    /* When H is treated in LTE, n is just a pointer to nstar,
+       so we don't need to free it */
+    if ((atom->active) || ((nact == 0) && (!atmosLocal->H_LTE))){
+      if (atom->n != NULL) freeMatrix((void **) atom->n);
+      atom->n = matrix_double(atom->Nlevel, atmosLocal->Nspace);
+    } else {
+      atom->n = atom->nstar;  
+    }
+
+
+    for (k = 0;  k < atmosLocal->Nspace;  k++)
+      atom->ntotal[k] = atom->abundance * atmosLocal->nHtot[k];
+
+    if (atom->Nline > 0) {
+      vtherm = 2.0*KBOLTZMANN/(AMU * atom->weight);
+      for (k = 0;  k < atmosLocal->Nspace;  k++)
+	atom->vbroad[k] = sqrt(vtherm*atmosLocal->T[k] + SQ(atmosLocal->vturb[k]));
+    }
+  }
+  
+  /* Now only for active atoms */
+  for (nact = 0; nact < atmosLocal->Nactiveatom; nact++) {
+    atom = atmosLocal->activeatoms[nact];
+
+
+    /* Rewind atom files to point just before collisional data */
+    // if ((ierror = fseek(atom->fp_input, io.atom_file_pos[nact], SEEK_SET))) {
+    //  sprintf(messageStr, "Unable to rewind atom file for %s", atom->ID);
+    //  Error(ERROR_LEVEL_2, routineName, messageStr);
+    // }
+    
+    /* Reallocate some stuff (because of varying Nspace) */
+
+    /* Free collision rate array, will be reallocated by calls in Background_p */
+    if (atom->C != NULL) {
+      freeMatrix((void **) atom->C);
+      atom->C = NULL;
+    }
+
+    /* Allocate Gamma, as iterate released the memory */
+    if(atom->Gamma == NULL)
+      atom->Gamma = matrix_double(SQ(atom->Nlevel), atmosLocal->Nspace);
+
+    
+    /* Initialise some continuum quantities */
+    for (kr = 0; kr < atom->Ncont; kr++) {
+      atom->continuum[kr].Rij = (double *) realloc(atom->continuum[kr].Rij,
+						   atmosLocal->Nspace * sizeof(double));
+      atom->continuum[kr].Rji = (double *) realloc(atom->continuum[kr].Rji,
+						   atmosLocal->Nspace * sizeof(double));
+      for (k = 0;  k < atmosLocal->Nspace;  k++) {
+	atom->continuum[kr].Rij[k] = 0.0;
+	atom->continuum[kr].Rji[k] = 0.0;
+      }
+    }
+    
+    
+    /* Initialise some line quantities */
+    for (kr = 0;  kr < atom->Nline;  kr++) {
+      line = &atom->line[kr];
+      
+      if (line->phi  != NULL) {
+	freeMatrix((void **) line->phi);
+	line->phi = NULL;
+      }
+      if (line->wphi != NULL) {
+	free(line->wphi);
+	line->wphi = NULL;
+      }
+
+      if (atmosLocal->moving && line->polarizable && (inputLocal->StokesMode >= FIELD_FREE)) {
+
+	if (line->phi_Q != NULL) {
+	  freeMatrix((void **) line->phi_Q);
+	  line->phi_Q = NULL;
+	}
+	if (line->phi_U != NULL) {
+	  freeMatrix((void **) line->phi_U);
+	  line->phi_U = NULL;
+	}
+	if (line->phi_V != NULL) {
+	  freeMatrix((void **) line->phi_V);
+	  line->phi_V = NULL;
+	}
+	
+
+	if (inputLocal->magneto_optical) {
+	  if (line->psi_Q != NULL) {
+	    freeMatrix((void **) line->psi_Q);
+	    line->psi_Q = NULL;
+	  }
+	  if (line->psi_U != NULL) {
+	    freeMatrix((void **) line->psi_U);
+	    line->psi_U = NULL;
+	  }
+	  if (line->psi_V != NULL) {
+	    freeMatrix((void **) line->psi_V);
+	    line->psi_V = NULL;
+	  }
+	}
+      }
+	
+
+      /* realloc because of varying Nspace */
+      line->Rij = (double *) realloc(line->Rij, atmosLocal->Nspace * sizeof(double));
+      line->Rji = (double *) realloc(line->Rji, atmosLocal->Nspace * sizeof(double));
+
+      for (k = 0;  k < atmosLocal->Nspace;  k++) {
+	line->Rij[k] = 0.0;
+	line->Rji[k] = 0.0;
+      }
+
+      if (line->PRD) {
+	if (line->Ng_prd != NULL) {
+	  NgFree(line->Ng_prd);
+	  line->Ng_prd = NULL;
+	}
+	
+	if (line->fp_GII != NULL) {
+	  fclose(line->fp_GII);
+	  line->fp_GII = NULL;
+	}
+
+	if (inputLocal->PRD_angle_dep == PRD_ANGLE_DEP)
+	  Nlamu = 2*atmosLocal->Nrays * line->Nlambda;
+	else
+	  Nlamu = line->Nlambda;
+	
+	/* Idea: instead of doing this, why not free and just set line->rho_prd = NULL,
+	   (and also line->Qelast?), because profile.c will act on that and reallocate */
+	if (line->rho_prd != NULL) freeMatrix((void **) line->rho_prd);
+	line->rho_prd = matrix_double(Nlamu, atmosLocal->Nspace);
+
+	if (line->Qelast != NULL) {
+	  line->Qelast = (double *) realloc(line->Qelast, atmosLocal->Nspace * sizeof(double));
+	} else {
+	  line->Qelast = (double *) malloc(atmosLocal->Nspace * sizeof(double));
+	}
+
+	/* Initialize the ratio of PRD to CRD profiles to 1.0 */
+	for (la = 0;  la < Nlamu;  la++) {
+	  for (k = 0;  k < atmosLocal->Nspace;  k++)
+	    line->rho_prd[la][k] = 1.0;
+	}
+
+	// reset interpolation weights 
+	if (inputLocal->PRD_angle_dep == PRD_ANGLE_APPROX) {
+	  //Nlamu = 2*atmos.Nrays * line->Nlambda;	  
+	  if (line->frac != NULL) {
+	    freeMatrix((void **) line->frac);
+	    line->frac = NULL;
+	  }
+	  if (line->id0 != NULL){
+	    freeMatrix((void **) line->id0);
+	    line->id0 = NULL;
+	  }
+	  if (line->id1 != NULL) {
+	    freeMatrix((void **) line->id1);
+	    line->id1 = NULL;
+	  }
+	}
+
+      }
+    }
+  }
+
+  distribute_nH_ctx(ctx);
+  
+  /* Update atmos-dependent molecular  quantities --- --------------- */
+  for (nact = 0; nact < atmosLocal->Nmolecule; nact++) {
+    molecule = &atmosLocal->molecules[nact];
+
+    /* Reallocate some stuff, because of varying Nspace */
+    molecule->vbroad = (double *) realloc(molecule->vbroad, atmosLocal->Nspace * sizeof(double));
+    molecule->pf     = (double *) realloc(molecule->pf,     atmosLocal->Nspace * sizeof(double));
+    molecule->n      = (double *) realloc(molecule->n,      atmosLocal->Nspace * sizeof(double));
+    if (molecule->nv != NULL) {
+      freeMatrix((void **) molecule->nv);
+      molecule->nv = matrix_double(molecule->Nv, atmosLocal->Nspace);
+    }
+    if (molecule->nvstar != NULL) {
+      freeMatrix((void **) molecule->nvstar);
+      molecule->nvstar = matrix_double(molecule->Nv, atmosLocal->Nspace);
+    }
+    if (molecule->pfv != NULL) {
+      freeMatrix((void **) molecule->pfv);
+      molecule->pfv = matrix_double(molecule->Nv, atmosLocal->Nspace);
+    }
+    
+
+    vtherm = 2.0*KBOLTZMANN / (AMU * molecule->weight);
+    for (k = 0;  k < atmosLocal->Nspace;  k++)
+      molecule->vbroad[k] = sqrt(vtherm*atmosLocal->T[k] + SQ(atmosLocal->vturb[k]));
+    
+    if (molecule->active) {
+      /* Allocate Gamma, as iterate released the memory */
+      molecule->Gamma = matrix_double(SQ(molecule->Nv), atmosLocal->Nspace);
+      
+      LTEmolecule_ctx(ctx, molecule);
+
+      /* Free CO collision rate array, will be reallocated in initSolution_p */
+      if (strstr(molecule->ID, "CO")) {
+	free(molecule->C_ul);
+	molecule->C_ul = NULL;
+      }
+
+      /* Free some line quantities */
+      for (kr = 0;  kr < molecule->Nrt;  kr++) {
+	mrt = &molecule->mrt[kr];
+	if (mrt->phi  != NULL) {
+	  freeMatrix((void **) mrt->phi);
+	  mrt->phi = NULL;
+	}
+	if (mrt->wphi != NULL) {
+	  free(mrt->wphi);
+	  mrt->wphi = NULL;
+	}
+      }
+
+    } else {
+      if (molecule->Npf > 0) {
+	for (k = 0;  k < atmosLocal->Nspace;  k++)
+	  molecule->pf[k] = partfunction(molecule, atmosLocal->T[k]);
+      }
+    }
+
+  }
+
+
+  return;
+}
