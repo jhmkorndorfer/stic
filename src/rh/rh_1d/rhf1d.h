@@ -101,7 +101,8 @@ extern "C" {
   void Initvarious();
   void calculateRay(void);
 
-  //  For now here I will add the tentative functions for RHF1D thread safe version...
+  // For now here I will add the tentative functions for RHF1D thread safe version...
+  // Functions below are in order of appearnce in the rhf1d function from rhf1d.c. This also includes subfunctions, for instance: readMolecularModels_ctx calls readMolecule_ctx and readMolecularLines_ctx etc.
   void DUMMYatmos_ctx(RHContext *ctx);
   void getAngleQuad_ctx(RHContext *ctx);
   void readAbundance_ctx(RHContext *ctx);
@@ -122,6 +123,15 @@ extern "C" {
   bool_t getBarklemcross_ac_ctx(Barklemstruct *bs, RLK_Line *rlk, RHContext *ctx);
   void Initvarious_ctx(RHContext *ctx);
   void UpdateAtmosDep_ctx(RHContext *ctx);
+  void Background_j_ctx(bool_t write_analyze_output, bool_t equilibria_only, RHContext *ctx);
+  void Solve_ne_ctx(double *ne, bool_t fromscratch, RHContext *ctx);
+  double getKuruczpf_ctx(Element *element, int stage, int k, RHContext *ctx);
+  void SetLTEQuantities_ctx(RHContext *ctx);
+  void LTEpops_ctx(Atom *atom, bool_t Debeye, RHContext *ctx);
+  void CollisionRate_ctx(struct Atom *atom, char **fp_atom, RHContext *ctx)
+
+
+
 
 
 

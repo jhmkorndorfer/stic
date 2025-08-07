@@ -265,7 +265,7 @@ bool_t rhf1d(RHContext* ctx, float muz, int rhs_ndep, double *rhs_T, double *rhs
 
   UpdateAtmosDep_ctx(ctx);
   printf("I GOT HERE 268!!!!\n");
-  Background_j(write_analyze_output=FALSE, equilibria_only=FALSE);
+  Background_j_ctx(write_analyze_output=FALSE, equilibria_only=FALSE, ctx);
   //convertScales(&ctx->atmos, &ctx->geometry);
   //if(ctx->atmos.H->NLTEpops) hydrostat[0] = TRUE;
 

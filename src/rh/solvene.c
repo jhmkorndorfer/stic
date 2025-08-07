@@ -27,7 +27,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "rh.h"
+// #include "rh.h"
+#include "rhf1d.h"
 #include "atom.h"
 #include "atmos.h"
 #include "constant.h"
@@ -145,6 +146,103 @@ void Solve_ne(double *ne, bool_t fromscratch)
 }
 /* ------- end ---------------------------- Solve_ne.c -------------- */
 
+/* ------- begin -------------------------- Solve_ne_ctx.c -------------- */
+
+void Solve_ne_ctx(double *ne, bool_t fromscratch, RHContext *ctx)
+{
+  const char routineName[] = "Solve_ne_ctx";
+  register int k, n, j;
+
+   Atmosphere *atmosLocal = &ctx->atmos;
+
+  int     Nmaxstage, niter;
+  double *fjk, *dfjk, error, ne_old, akj, sum, PhiH, C1, Uk,
+    dne, dnemax, *np, PhiHmin;
+
+  getCPU(3, TIME_START, NULL);
+
+  C1 = (HPLANCK/(2.0*PI*M_ELECTRON)) * (HPLANCK/KBOLTZMANN);
+
+  /* --- Figure out the largest array size needed so that we do not
+         have to allocate and free memory all the time -- ----------- */
+
+  Nmaxstage = 0;
+  for (n = 0;  n < atmosLocal->Nelem;  n++)
+    Nmaxstage = MAX(Nmaxstage, atmosLocal->elements[n].Nstage);
+  fjk  = (double *) malloc(Nmaxstage * sizeof(double));
+  dfjk = (double *) malloc(Nmaxstage * sizeof(double));
+
+  np = atmosLocal->H->n[atmosLocal->H->Nlevel-1];
+  for (k = 0;  k < atmosLocal->Nspace;  k++) {
+    if (fromscratch) {
+
+      /* --- Get the initial solution from ionization of H only -- -- */
+
+      if (atmosLocal->H_LTE) {
+	Uk = getKuruczpf_ctx(&atmosLocal->elements[0], 0, k, ctx);
+	PhiH = 0.5 * pow(C1/atmosLocal->T[k], 1.5) *
+	  exp(Uk + atmosLocal->elements[0].ionpot[0]/(KBOLTZMANN*atmosLocal->T[k]));
+	ne_old = (sqrt(1.0 + 4.0*atmosLocal->nHtot[k]*PhiH) - 1.0) / (2.0*PhiH);
+      } else
+	ne_old = np[k];
+
+      /* --- Copy into ne as well to calculate first fij and dfij - - */
+
+      ne[k] = ne_old;
+    } else {
+      /* --- Use original electron density as starting guess -- ----- */
+
+      ne_old = ne[k]; 
+    }
+
+    niter = 0;
+    while (niter < N_MAX_ELECTRON_ITERATIONS) {
+      error = ne_old / atmosLocal->nHtot[k];
+      sum   = 0.0;
+
+      for (n = 0;  n < atmosLocal->Nelem;  n++) {
+	getfjk(&atmosLocal->elements[n], ne_old, k, fjk, dfjk);
+
+        /* --- Contribution from Hminus --             -------------- */
+
+        if (n == 0) {
+          PhiHmin = 0.25*pow(C1/atmosLocal->T[k], 1.5) *
+	    exp(E_ION_HMIN / (KBOLTZMANN * atmosLocal->T[k]));
+	  error += ne_old * fjk[0] * PhiHmin;
+          sum   -= (fjk[0] + ne_old * dfjk[0]) * PhiHmin;
+	}
+
+	for (j = 1;  j < atmosLocal->elements[n].Nstage;  j++) {
+	  akj = atmosLocal->elements[n].abund * j;
+	  error -= akj * fjk[j];
+	  sum   += akj * dfjk[j];
+	}
+      }
+
+      ne[k] = ne_old -
+	atmosLocal->nHtot[k] * error / (1.0 - atmosLocal->nHtot[k] * sum);
+      dne = fabs((ne[k] - ne_old)/ne_old);
+      ne_old = ne[k];
+    
+      if (dne <= MAX_ELECTRON_ERROR) break;
+      niter++;
+    }
+
+    if (dne > MAX_ELECTRON_ERROR) {
+      sprintf(messageStr, "Electron density iteration not converged:\n"
+	      " spatial location: %d, temperature: %6.1f [K], \n"
+	      " density: %9.3E [m^-3],\n dnemax: %9.3E\n",
+	      k, atmosLocal->T[k], atmosLocal->nHtot[k], dne);
+      Error(WARNING, routineName, messageStr);
+    }
+  }
+
+  free(fjk);  free(dfjk);
+
+  getCPU(3, TIME_POLL, "Electron density");
+}
+/* ------- end ---------------------------- Solve_ne_ctx.c -------------- */
+
 /* ------- begin -------------------------- getfjk.c ---------------- */
 
 void getfjk(Element *element, double ne, int k, double *fjk, double *dfjk)
@@ -222,3 +320,19 @@ double getKuruczpf(Element *element, int stage, int k)
   return Uk;
 }
 /* ------- end ---------------------------- getKuruczpf.c ----------- */
+
+
+/* ------- begin -------------------------- getKuruczpf_ctx.c ----------- */
+
+double getKuruczpf_ctx(Element *element, int stage, int k, RHContext *ctx)
+{
+  bool_t hunt = TRUE;
+  double Uk;
+  Atmosphere *atmosLocal = &ctx->atmos;
+
+  Linear(atmosLocal->Npf, atmosLocal->Tpf, element->pf[stage], 
+	 1, &atmosLocal->T[k], &Uk, hunt);
+
+  return Uk;
+}
+/* ------- end ---------------------------- getKuruczpf_ctx.c ----------- */

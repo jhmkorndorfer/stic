@@ -884,4 +884,500 @@ void Background_j(bool_t write_analyze_output, bool_t equilibria_only)
   
   getCPU(2, TIME_POLL, "Total Background");
 }
+
+
+
+void Background_j_ctx(bool_t write_analyze_output, bool_t equilibria_only, RHContext *ctx)
+{
+  const char routineName[] = "Background_j_ctx";
+  register int k, nspect, n, mu, to_obs;
+
+  // REMINDER OF WHICH ARE THE GLOBALS HERE:
+// extern Atmosphere atmos;
+// extern Spectrum spectrum;
+// extern InputData input;
+// extern char messageStr[];
+// extern BackgroundData bgdat;
+// extern rhinfo io;
+// extern rhbgmem *bmem;
+// extern MPI_t mpi;
+
+  Atmosphere *atmosLocal = &ctx->atmos;
+  InputData *inputLocal = &ctx->input;
+  Spectrum *spectrumLocal = &ctx->spectrum;
+  BackgroundData *bgdatLocal = &ctx->bgdat;
+  // rhinfo *ioLocal = &ctx->io;
+  // rhbgmem *bmemLocal = ctx->bmem;
+  
+  static int ne_iter = 0;
+  bool_t  do_fudge;
+  int     index, Nfudge, NrecStokes;
+  double *chi, *eta, *scatt, wavelength, *thomson, *chi_ai, *eta_ai, *sca_ai,
+    Hmin_fudge, scatt_fudge, metal_fudge, *lambda_fudge, **fudge,
+    *Bnu, *chi_c, *eta_c, *sca_c, *chip, *chip_c;
+  Atom   *He;
+  Element *element;
+  flags   backgrflags;
+  char    file_background[MAX_MESSAGE_LENGTH], *fext = FILE_EXT;
+
+
+  getCPU(2, TIME_START, NULL);
+
+  if (inputLocal->solve_ne == ONCE ) {
+    //    fromscratch = TRUE; //(inputLocal->solve_ne == ONCE  ||
+    Solve_ne_ctx(atmosLocal->ne, TRUE, ctx);
+  }
+  SetLTEQuantities_ctx(ctx);
+
+  if (inputLocal->NonICE)
+    readMolecules(MOLECULAR_CONCENTRATION_FILE);
+  else{
+    ChemicalEquilibrium(N_MAX_CHEM_ITER, CHEM_ITER_LIMIT);
+    if(mpi.stop){
+      return;
+    }
+  }
+  if (equilibria_only) {
+
+    /* --- If we only need ne, LTE populations and collisions, and
+           chemical equilibrium leave here --          -------------- */
+
+    getCPU(2, TIME_POLL, "Total Background");
+    return;
+  }
+
+  getCPU(3, TIME_START, NULL);
+
+  /* Get fudge data */
+  lambda_fudge = bgdatLocal->lambda_fudge;
+  do_fudge     = bgdatLocal->do_fudge;
+  Nfudge       = bgdatLocal->Nfudge;
+  fudge        = bgdatLocal->fudge;
+
+
+  
+  
+  
+
+  /* --- Allocate temporary storage space. The quantities are used
+         for the following purposes:
+
+       - chi, eta, scatt: Get contributions to opacity, emissivity,
+         and scattering opacity, respectively, from a specific process
+         for a given wavelength and possibly angle.
+
+       - chi_c, eta_c, sca_c: Collect the total opacity, emissivity
+         and scattering opacity for a given wavelength and possibly
+         angle.
+
+       - chi_ai, eta_ai: Collect the angle-independent part of
+         opacity and emissivity for each wavelength so that these
+         need not be recalculated in an angle-dependent case.
+         When the atmosphere is not moving and has no magnetic fields
+         these just point to the total quantities chi_c and eta_c.
+
+   Note: In case of magnetic fields in the atmosphere chi, eta and 
+         chip, and chi_c, eta_c and chip_c contain all four Stokes
+         parameters, and should be allocated a 4 and 3 times larger
+         storage space, respectively.
+         --                                            -------------- */
+
+  if (atmosLocal->Stokes)
+    NrecStokes = 4;
+  else
+    NrecStokes = 1;
+
+  chi_c = (double *) malloc(NrecStokes*atmosLocal->Nspace * sizeof(double));
+  eta_c = (double *) malloc(NrecStokes*atmosLocal->Nspace * sizeof(double));
+  sca_c = (double *) malloc(atmosLocal->Nspace * sizeof(double));
+
+  chi   = (double *) malloc(NrecStokes*atmosLocal->Nspace * sizeof(double));
+  eta   = (double *) malloc(NrecStokes*atmosLocal->Nspace * sizeof(double));
+  scatt = (double *) malloc(atmosLocal->Nspace * sizeof(double));
+    
+  if (atmosLocal->Stokes && inputLocal->magneto_optical) {
+    chip   = (double *) malloc(3*atmosLocal->Nspace * sizeof(double));
+    chip_c = (double *) malloc(3*atmosLocal->Nspace * sizeof(double));
+  } else {
+    chip   = NULL;
+    chip_c = NULL;
+  }
+
+  if (atmosLocal->moving || atmosLocal->Stokes) {
+    chi_ai = (double *) malloc(atmosLocal->Nspace * sizeof(double));
+    eta_ai = (double *) malloc(atmosLocal->Nspace * sizeof(double));
+    sca_ai = (double *) malloc(atmosLocal->Nspace * sizeof(double));
+  } else {
+    chi_ai = chi_c;
+    eta_ai = eta_c;
+    sca_ai = sca_c;
+  }
+  Bnu = (double *) malloc(atmosLocal->Nspace * sizeof(double));
+
+  /* --- Thomson scattering by free electrons is wavelength independent
+         in non-relativistic limit so we compute it only once -- ---- */
+
+  thomson = (double *) malloc(atmosLocal->Nspace * sizeof(double));
+  Thomson(thomson);
+
+  /* --- Check whether an atomic model is present for He -- --------- */
+
+  He = (atmosLocal->elements[1].model) ? atmosLocal->elements[1].model : NULL;
+
+
+  /* --- Go through the spectrum and add the different opacity and
+         emissivity contributions. This is the main loop --  -------- */
+
+  for (nspect = 0;  nspect < spectrumLocal->Nspect;  nspect++) {
+    wavelength = spectrumLocal->lambda[nspect];
+
+    /* --- The Planck function at this wavelength --   -------------- */
+
+    Planck(atmosLocal->Nspace, atmosLocal->T, wavelength, Bnu);
+
+    /* --- Initialize the flags for this wavelength -- -------------- */
+
+    atmosLocal->backgrflags[nspect].hasline     = FALSE;
+    atmosLocal->backgrflags[nspect].ispolarized = FALSE;
+
+    /* --- Initialize angle-independent quantities --  -------------- */
+
+    for (k = 0;  k < atmosLocal->Nspace;  k++) {
+      chi_ai[k] = 0.0;
+      eta_ai[k] = 0.0;
+      sca_ai[k] = thomson[k];
+    }
+    /* --- Negative hydrogen ion, bound-free and free-free -- ------- */
+
+    if (Hminus_bf(wavelength, chi, eta)) {
+      for (k = 0;  k < atmosLocal->Nspace;  k++) {
+	chi_ai[k] += chi[k];
+	eta_ai[k] += eta[k];
+      }
+    }
+    if (Hminus_ff(wavelength, chi)) {
+      for (k = 0;  k < atmosLocal->Nspace;  k++) {
+	chi_ai[k] += chi[k];
+	eta_ai[k] += chi[k] * Bnu[k];
+      }
+    }
+    /* --- Opacity fudge factors, applied to Hminus opacity -- ------ */
+
+    if (do_fudge) {
+      Linear(Nfudge, lambda_fudge, fudge[0],
+	     1, &wavelength, &Hmin_fudge, FALSE);
+      for (k = 0;  k < atmosLocal->Nspace;  k++) {
+	chi_ai[k] *= Hmin_fudge;
+	eta_ai[k] *= Hmin_fudge;
+      }
+    }
+    /* --- Opacities from bound-free transitions in OH and CH -- ---- */
+
+    if (OH_bf_opac(wavelength, chi, eta)) {
+      for (k = 0;  k < atmosLocal->Nspace;  k++) {
+	chi_ai[k] += chi[k];
+	eta_ai[k] += eta[k];
+      }
+    }
+    if (CH_bf_opac(wavelength, chi, eta)) {
+      for (k = 0;  k < atmosLocal->Nspace;  k++) {
+	chi_ai[k] += chi[k];
+	eta_ai[k] += eta[k];
+      }
+    }
+    /* --- Neutral Hydrogen Bound-Free and Free-Free --  ------------ */
+
+    if (Hydrogen_bf(wavelength, chi, eta)) {
+      for (k = 0;  k < atmosLocal->Nspace;  k++) {
+	chi_ai[k] += chi[k];
+	eta_ai[k] += eta[k];
+      }
+    }
+    Hydrogen_ff(wavelength, chi);
+    for (k = 0;  k < atmosLocal->Nspace;  k++) {
+      chi_ai[k] += chi[k]; 
+      eta_ai[k] += chi[k] * Bnu[k];
+    }
+    /* --- Rayleigh scattering by neutral hydrogen --  -------------- */
+
+    if (Rayleigh(wavelength, atmosLocal->H, scatt)) {
+      for (k = 0;  k < atmosLocal->Nspace;  k++) {
+	sca_ai[k]  += scatt[k];
+      }
+    }
+    /* --- Rayleigh scattering by neutral helium --    -------------- */
+
+    if (He && Rayleigh(wavelength, He, scatt)) {
+      for (k = 0;  k < atmosLocal->Nspace;  k++) {
+	sca_ai[k]  += scatt[k];
+      }
+    }
+    /* --- Absorption by H + H^+ (referred to as H2plus free-free) -- */
+
+    if (H2plus_ff(wavelength, chi)) {
+      for (k = 0;  k < atmosLocal->Nspace;  k++) {
+	chi_ai[k] += chi[k]; 
+	eta_ai[k] += chi[k] * Bnu[k];
+      }
+    }
+    /* --- Rayleigh scattering and free-free absorption by
+           molecular hydrogen --                       -------------- */
+
+    if (Rayleigh_H2(wavelength, scatt)) {
+      for (k = 0;  k < atmosLocal->Nspace;  k++) {
+	sca_ai[k]  += scatt[k];
+      }
+    }
+    if (H2minus_ff(wavelength, chi)) {
+      for (k = 0;  k < atmosLocal->Nspace;  k++) {
+	chi_ai[k] += chi[k]; 
+	eta_ai[k] += chi[k] * Bnu[k];
+      }
+    }
+    /* --- Bound-Free opacities due to ``metals'' --   -------------- */
+
+    if (do_fudge) {
+      Linear(Nfudge, lambda_fudge, fudge[2],
+	     1, &wavelength, &metal_fudge, FALSE);
+    } else {
+      metal_fudge = 1.0;
+    }
+    /* --- Note: Hydrogen bound-free opacities are calculated in
+           routine Hydrogen_bf --                      -------------- */
+
+    Metal_bf(wavelength, atmosLocal->Natom-1, atmosLocal->atoms+1, chi, eta);
+    for (k = 0;  k < atmosLocal->Nspace;  k++) {
+      chi_ai[k] += chi[k] * metal_fudge;
+      eta_ai[k] += eta[k] * metal_fudge;
+    }
+    /* --- Add the scattering opacity to the absorption part to store
+           the total opacity --                        -------------- */
+
+    if (do_fudge) {
+      Linear(Nfudge, lambda_fudge, fudge[1],
+	     1, &wavelength, &scatt_fudge, FALSE);
+    } else {
+      scatt_fudge = 1.0;
+    }
+    for (k = 0;  k < atmosLocal->Nspace;  k++) {
+      sca_ai[k] *= scatt_fudge;
+      chi_ai[k] += sca_ai[k];
+    }
+    /* --- Now the contributions that may be angle-dependent due to the
+           presence of atomic or molecular lines --    -------------- */
+
+    if (atmosLocal->moving || atmosLocal->Stokes) {
+      for (mu = 0;  mu < atmosLocal->Nrays;  mu++) {
+        for (to_obs = 0;  to_obs <= 1;  to_obs++) {
+	  index = 2*(nspect*atmosLocal->Nrays + mu) + to_obs;
+
+          /* --- First, copy the angle-independent parts -- --------- */
+
+	  for (k = 0;  k < atmosLocal->Nspace;  k++) {
+	    chi_c[k] = chi_ai[k];
+	    eta_c[k] = eta_ai[k];
+            sca_c[k] = sca_ai[k];
+	  }
+	  
+          /* --- Zero the polarized quantities, if necessary -- ----- */
+
+	  if (atmosLocal->Stokes) {
+           for (k = atmosLocal->Nspace;  k < 4*atmosLocal->Nspace;  k++) {
+              chi_c[k] = 0.0;
+              eta_c[k] = 0.0;
+            }
+            if (inputLocal->magneto_optical)
+              for (k = 0;  k < 3*atmosLocal->Nspace;  k++) chip_c[k] = 0.0;
+	  }
+          /* --- Add opacity from passive atomic lines (including
+                 hydrogen) --                          -------------- */
+
+	  if (inputLocal->allow_passive_bb) {
+	    backgrflags = passive_bb(wavelength, nspect, mu, to_obs,
+				     chi, eta, chip);
+	    if (backgrflags.hasline) {
+	      atmosLocal->backgrflags[nspect].hasline = TRUE;
+	      if (backgrflags.ispolarized) {
+                NrecStokes = 4;
+                atmosLocal->backgrflags[nspect].ispolarized = TRUE;
+		if (inputLocal->magneto_optical) {
+                  for (k = 0;  k < 3*atmosLocal->Nspace;  k++)
+                    chip_c[k] += chip[k];
+                }
+              } else
+                NrecStokes = 1;
+
+              for (k = 0;  k < NrecStokes*atmosLocal->Nspace;  k++) {
+                chi_c[k] += chi[k];
+                eta_c[k] += eta[k];
+              }
+
+	    }
+	  }
+          /* --- Add opacity from Kurucz line list --  -------------- */
+
+          if (atmosLocal->Nrlk > 0) {
+	    backgrflags = rlk_opacity(wavelength, nspect, mu, to_obs,
+				      chi, eta, scatt, chip);
+	    if (backgrflags.hasline) {
+	      atmosLocal->backgrflags[nspect].hasline = TRUE;
+              if (backgrflags.ispolarized) {
+                NrecStokes = 4;
+                atmosLocal->backgrflags[nspect].ispolarized = TRUE;
+                if (inputLocal->magneto_optical) {
+                  for (k = 0;  k < 3*atmosLocal->Nspace;  k++)
+                    chip_c[k] += chip[k];
+                }
+              } else
+                NrecStokes = 1;
+
+              for (k = 0;  k < NrecStokes*atmosLocal->Nspace;  k++) {
+                chi_c[k] += chi[k];
+                eta_c[k] += eta[k];
+              }
+	      if (inputLocal->rlkscatter) {
+		for (k = 0;  k < atmosLocal->Nspace;  k++) {
+		  sca_c[k] += scatt[k];
+		  chi_c[k] += scatt[k];
+		}
+	      }
+	    }
+	  }
+	  /* --- Add opacity from molecular lines --   -------------- */
+
+	  backgrflags = MolecularOpacity(wavelength, nspect, mu, to_obs,
+					 chi, eta, chip);
+	  if (backgrflags.hasline) {
+	    atmosLocal->backgrflags[nspect].hasline = TRUE;
+            if (backgrflags.ispolarized) {
+              NrecStokes = 4;
+              atmosLocal->backgrflags[nspect].ispolarized = TRUE;
+              if (inputLocal->magneto_optical) {
+                for (k = 0;  k < 3*atmosLocal->Nspace;  k++)
+                  chip_c[k] += chip[k];
+              }
+            } else
+              NrecStokes = 1;
+
+            for (k = 0;  k < NrecStokes*atmosLocal->Nspace;  k++) {
+              chi_c[k] += chi[k];
+              eta_c[k] += eta[k];
+            }
+	  }
+	  /* --- Store angle-dependent results only if at least one
+                 line was found at this wavelength --  -------------- */
+	  
+	  //	  atmosLocal->backgrrecno[index] = backgrrecno;
+	  if ((mu == atmosLocal->Nrays-1 && to_obs) ||
+	      (atmosLocal->backgrflags[nspect].hasline && 
+	       (atmosLocal->moving || atmosLocal->backgrflags[nspect].ispolarized))) {
+
+
+
+	    if ((mu == atmosLocal->Nrays-1 && to_obs) && !(atmosLocal->backgrflags[nspect].hasline && 
+						     (atmosLocal->moving || atmosLocal->backgrflags[nspect].ispolarized)) ){
+	      writeBackground_j(nspect, 0, 0,
+				chi_c, eta_c, sca_c, chip_c);
+	    } else {
+	      
+	      
+	      writeBackground_j(nspect, mu, to_obs,
+				chi_c, eta_c, sca_c, chip_c);
+	    }
+	  }
+	  
+	}
+      }    
+    } else {
+      /* --- Angle-independent case. First, add opacity from passive
+	     atomic lines (including hydrogen) --      -------------- */
+
+      if (inputLocal->allow_passive_bb) {
+	backgrflags = passive_bb(wavelength, nspect, 0, TRUE,
+				 chi, eta, NULL);
+	if (backgrflags.hasline) {
+	  atmosLocal->backgrflags[nspect].hasline = TRUE;
+	  for (k = 0;  k < atmosLocal->Nspace;  k++) {
+	    chi_c[k] += chi[k];
+	    eta_c[k] += eta[k];
+	  }
+	}
+      }
+      /* --- Add opacity from Kurucz line list --      -------------- */
+
+      if (atmosLocal->Nrlk > 0) {
+	backgrflags = rlk_opacity(wavelength, nspect, 0, TRUE,
+				  chi, eta, scatt, NULL);
+	if (backgrflags.hasline) {
+	  atmosLocal->backgrflags[nspect].hasline = TRUE;
+	  for (k = 0;  k < atmosLocal->Nspace;  k++) {
+	    chi_c[k] += chi[k];
+	    eta_c[k] += eta[k];
+	  }
+	  if (inputLocal->rlkscatter) {
+	    for (k = 0;  k < atmosLocal->Nspace;  k++) {
+	      sca_c[k] += scatt[k];
+	      chi_c[k] += scatt[k];
+	    }
+	  }
+	}
+      }
+      /* --- Add opacity from molecular lines --       -------------- */
+
+      backgrflags = MolecularOpacity(wavelength, nspect, 0, TRUE,
+				     chi, eta, NULL);
+      if (backgrflags.hasline) {
+	atmosLocal->backgrflags[nspect].hasline = TRUE;
+	for (k = 0;  k < atmosLocal->Nspace;  k++) {
+	  chi_c[k] += chi[k];
+	  eta_c[k] += eta[k];
+	}
+      }
+      /* --- Store results --                          -------------- */
+
+      //  atmosLocal->backgrrecno[nspect] = backgrrecno;
+      writeBackground_j(nspect, 0, 0,
+		      chi_c, eta_c, sca_c, NULL);
+    }
+  }
+
+  
+ 
+  getCPU(3, TIME_POLL, "Background Opacity");
+
+  /* --- Free the temporary space allocated in the ff routines -- --- */
+
+  Hminus_ff(0.0, NULL);
+  H2minus_ff(0.0, NULL);
+  H2plus_ff(0.0, NULL);
+
+  free(chi);    free(eta);  free(scatt);  free(Bnu);  free(thomson);
+  free(chi_c);  free(eta_c);  free(sca_c);
+
+  if (atmosLocal->moving || atmosLocal->Stokes) {
+    free(chi_ai);
+    free(eta_ai);
+    free(sca_ai);
+  }
+  if (atmosLocal->Stokes && inputLocal->magneto_optical) {
+    free(chip);
+    free(chip_c);
+  }
+
+
+  /* --- Free the element populations for species used in rlk_opacity --- */
+  
+  for (k = 0;  k < atmosLocal->Nelem;  k++) {
+    element = &atmosLocal->elements[k];
+    if (element->n != NULL) {
+      freeMatrix((void **) element->n);
+      element->n = NULL;
+    }
+    
+  }
+  
+  getCPU(2, TIME_POLL, "Total Background");
+}
+
+
 /* ------- end ---------------------------- Background.c ------------ */
