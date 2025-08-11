@@ -122,6 +122,7 @@ void H2collisions_ctx(struct Molecule *molecule, RHContext *ctx)
 {
   const char routineName[] = "H2collisions_ctx";
   register int k;
+  Atmosphere *atmosLocal = &ctx->atmos;
 
   double hcomega_k, *beta, C_0;
 

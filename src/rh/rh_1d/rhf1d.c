@@ -277,9 +277,10 @@ bool_t rhf1d(RHContext* ctx, float muz, int rhs_ndep, double *rhs_T, double *rhs
     initSolution_j_ctx( myrank, savpop, ctx);
     printf("I GOT HERE 279!!!!\n");
 
-    if(computing_derivatives || (ctx->input.solve_ne < ITERATION_EOS))
+    if(computing_derivatives || (ctx->input.solve_ne < ITERATION_EOS)){
        read_populations(ctx, save_pop,0);
-
+    }
+    printf("I GOT HERE 284!!!!\n");
     if((savpop == 0) && 1){
       ctx->input.Ngdelay = min(15,ctx->input.Ngdelay) ;
       ctx->input.Ngperiod = min(13,ctx->input.Ngperiod) ;
