@@ -880,6 +880,221 @@ flags rlk_opacity(double lambda, int nspect, int mu, bool_t to_obs,
 }
 /* ------- end ---------------------------- rlk_opacity.c ----------- */
 
+/* ------- begin -------------------------- rlk_opacity_ctx.c ----------- */
+
+flags rlk_opacity_ctx(double lambda, int nspect, int mu, bool_t to_obs, double *chi, double *eta, double *scatt, double *chip, RHContext *ctx)
+{
+  register int k, n, kr;
+
+  bool_t contributes, hunt;
+  int    Nwhite, Nblue, Nred, NrecStokes;
+  double dlamb_wing, *pf, dlamb_char, hc_la, ni_gi, nj_gj, lambda0, kT,
+         Bijhc_4PI, twohnu3_c2, hc, fourPI, hc_4PI,
+        *eta_Q, *eta_U, *eta_V, eta_l,
+        *chi_Q, *chi_U, *chi_V, chi_l, *chip_Q, *chip_U, *chip_V,
+         phi, phi_Q, phi_U, phi_V, psi_Q, psi_U, psi_V,
+         epsilon, C, C2_atom, C2_ion, C3, dE, x;
+  Atom *metal;
+  AtomicLine *line;
+  Element *element;
+  RLK_Line *rlk;
+  flags backgrflags;
+  
+  Atmosphere *atmosLocal = &ctx->atmos;
+  InputData *inputLocal = &ctx->input;
+  
+
+  /* --- Calculate the LTE opacity at wavelength lambda due to atomic
+         transitions stored in atmosLocal->rlk_lines --      -------------- */
+
+  backgrflags.hasline     = FALSE;
+  backgrflags.ispolarized = FALSE;
+
+  /* --- If wavelength outside our list return without calculation -- */
+
+  dlamb_char = lambda * Q_WING * (atmosLocal->vmicro_char / CLIGHT);
+  if (lambda < atmosLocal->rlk_lines[0].lambda0 - dlamb_char ||
+      lambda > atmosLocal->rlk_lines[atmosLocal->Nrlk-1].lambda0 + dlamb_char) {
+   return backgrflags;
+  }
+
+  hc     = HPLANCK * CLIGHT;
+  fourPI = 4.0 * PI;
+  hc_4PI = hc / fourPI;
+
+  if (inputLocal->rlkscatter) {
+    C       = 2 * PI * (Q_ELECTRON/EPSILON_0) *
+                (Q_ELECTRON/M_ELECTRON) / CLIGHT;
+    C2_atom = 2.15E-6;
+    C2_ion  = 3.96E-6;
+  }
+
+  pf = (double *) malloc(atmosLocal->Nspace * sizeof(double));
+
+  /* --- locate wavelength lambda in table of lines -- -------------- */
+
+  Nwhite = 0;
+  rlk_locate(atmosLocal->Nrlk, atmosLocal->rlk_lines, lambda, &Nwhite);
+  Nblue = Nwhite;
+  while (atmosLocal->rlk_lines[Nblue].lambda0 + dlamb_char > lambda &&
+	 Nblue > 0)  Nblue--;
+  Nred = Nwhite;
+  while (atmosLocal->rlk_lines[Nred].lambda0 - dlamb_char < lambda &&
+	 Nred < atmosLocal->Nrlk-1)  Nred++;
+
+  /* --- Initialize the contribution for this wavelength and angle -- */
+
+  if (Nred >= Nblue) {
+    if (atmosLocal->Stokes) {
+      NrecStokes = 4;
+
+      /* --- Use pointers to sub-arrays for Q, U, and V -- ---------- */
+
+      chi_Q = chi + atmosLocal->Nspace;
+      chi_U = chi + 2*atmosLocal->Nspace;
+      chi_V = chi + 3*atmosLocal->Nspace;
+
+      eta_Q = eta + atmosLocal->Nspace;
+      eta_U = eta + 2*atmosLocal->Nspace;
+      eta_V = eta + 3*atmosLocal->Nspace;
+
+      if (inputLocal->magneto_optical) {
+        chip_Q = chip;
+        chip_U = chip + atmosLocal->Nspace;
+        chip_V = chip + 2*atmosLocal->Nspace;
+
+        for (k = 0;  k < 3*atmosLocal->Nspace;  k++) chip[k] = 0.0;
+      }
+    } else
+      NrecStokes = 1;
+
+    for (k = 0;  k < NrecStokes * atmosLocal->Nspace;  k++) {
+      chi[k] = 0.0;
+      eta[k] = 0.0;
+    }
+    if (inputLocal->rlkscatter) {
+      for (k = 0;  k < atmosLocal->Nspace;  k++) scatt[k] = 0.0;
+    }
+  }
+  /* --- Add opacities from lines at this wavelength -- ------------- */
+
+  for (n = Nblue;  n <= Nred;  n++) {
+    rlk = &atmosLocal->rlk_lines[n];
+    if (fabs(rlk->lambda0 - lambda) <= dlamb_char) {      
+      element = &atmosLocal->elements[rlk->pt_index - 1];
+
+      /* --- Check whether partition function is present for this
+	     stage, and if abundance is set --         -------------- */
+
+      if ((rlk->stage < element->Nstage - 1) && element->abundance_set) {
+	contributes = TRUE;
+	if ((metal = element->model) != NULL) {
+
+          /* --- If an explicit atomic model is present check that we
+	         do not already account for this line in this way - - */
+
+	  for (kr = 0;  kr < metal->Nline;  kr++) {
+	    line = metal->line + kr;
+	    dlamb_wing = line->lambda0 * line->qwing *
+	      (atmosLocal->vmicro_char / CLIGHT);
+	    if (fabs(lambda - line->lambda0) <= dlamb_wing &&
+		metal->stage[line->i] == rlk->stage) {
+	      contributes = FALSE;
+	      break;
+	    }
+	  }
+	}
+      } else
+	contributes = FALSE;
+
+      /* --- Get opacity from line --                  -------------- */
+
+      if (contributes) {
+	hc_la      = (HPLANCK * CLIGHT) / (rlk->lambda0 * NM_TO_M);
+	Bijhc_4PI  = hc_4PI * rlk->Bij * rlk->isotope_frac *
+	  rlk->hyperfine_frac * rlk->level_i.g;
+	twohnu3_c2 = rlk->Aji / rlk->Bji;
+
+	if (inputLocal->rlkscatter) {
+	  if (rlk->stage == 0) {
+	    x  = 0.68;
+	    C3 = C / (C2_atom * SQ(rlk->lambda0 * NM_TO_M));
+	  } else {
+	    x  = 0.0;
+	    C3 = C / (C2_ion * SQ(rlk->lambda0 * NM_TO_M));
+	  }
+
+	  dE = rlk->level_j.E - rlk->level_i.E;
+
+	}
+        /* --- Set flag that line is present at this wavelength -- -- */
+
+	backgrflags.hasline = TRUE;
+	if (rlk->polarizable) {
+	  backgrflags.ispolarized = TRUE;
+	  if (rlk->zm == NULL) RLKZeeman(rlk);
+	}
+
+        if (element->n == NULL) {
+	  element->n = matrix_double(element->Nstage, atmosLocal->Nspace);
+	  LTEpops_elem_ctx(element, ctx);
+	}
+        Linear(atmosLocal->Npf, atmosLocal->Tpf, element->pf[rlk->stage],
+	       atmosLocal->Nspace, atmosLocal->T, pf, hunt=TRUE);
+
+	for (k = 0;  k < atmosLocal->Nspace;  k++) {
+	  phi = RLKProfile_ctx(rlk, k, mu, to_obs, lambda,
+			   &phi_Q, &phi_U, &phi_V,
+			   &psi_Q, &psi_U, &psi_V, ctx);
+
+	  if (phi){
+	    kT    = 1.0 / (KBOLTZMANN * atmosLocal->T[k]);
+	    ni_gi = element->n[rlk->stage][k] *
+	      exp(-rlk->level_i.E * kT - pf[k]);
+            nj_gj = ni_gi * exp(-hc_la * kT);
+	    
+	    chi_l = Bijhc_4PI * (ni_gi - nj_gj);
+	    eta_l = Bijhc_4PI * twohnu3_c2 * nj_gj;
+
+	    if (inputLocal->rlkscatter) {
+	      epsilon = 1.0 / (1.0 + C3 * pow(atmosLocal->T[k], 1.5) /
+			       (atmosLocal->ne[k] * 
+				pow(KBOLTZMANN * atmosLocal->T[k] / dE, 1 + x)));
+
+              scatt[k] += (1.0 - epsilon) * chi_l * phi;
+	      chi_l    *= epsilon;
+              eta_l    *= epsilon;
+	    }
+
+	    chi[k] += chi_l * phi;
+	    eta[k] += eta_l * phi;
+
+	    if (rlk->zm != NULL && rlk->Grad) {
+	      chi_Q[k] += chi_l * phi_Q;
+	      chi_U[k] += chi_l * phi_U;
+	      chi_V[k] += chi_l * phi_V;
+
+	      eta_Q[k] += eta_l * phi_Q;
+	      eta_U[k] += eta_l * phi_U;
+	      eta_V[k] += eta_l * phi_V;
+
+	      if (inputLocal->magneto_optical) {
+		chip_Q[k] += chi_l * psi_Q;
+		chip_U[k] += chi_l * psi_U;
+		chip_V[k] += chi_l * psi_V;
+	      }
+	    }
+	  }
+	}
+      }
+    }
+  }
+
+  free(pf);
+  return backgrflags;
+}
+/* ------- end ---------------------------- rlk_opacity_ctx.c ----------- */
+
 /* ----- JdlCR: Function to get the l values from the atomic 
    configuration, not from the spectral terms --- */
 
@@ -1011,6 +1226,109 @@ double RLKProfile(RLK_Line *rlk, int k, int mu, bool_t to_obs,
   return phi;
 }
 /* ------- end ---------------------------- RLKProfile.c ------------ */
+
+
+/* ------- begin -------------------------- RLKProfile_ctx.c ------------ */
+
+double RLKProfile_ctx(RLK_Line *rlk, int k, int mu, bool_t to_obs, double lambda, double *phi_Q, double *phi_U, double *phi_V, double *psi_Q, double *psi_U, double *psi_V, RHContext *ctx)
+{
+  register int nz;
+
+  double v, phi_sm, phi_sp, phi_pi, psi_sm, psi_sp, psi_pi, adamp,
+         vB, H, F, sv, phi_sigma, phi_delta, sign, sin2_gamma, phi,
+         psi_sigma, psi_delta, vbroad, vtherm, GvdW, *np;
+  Element *element;
+
+  Atmosphere *atmosLocal = &ctx->atmos;
+  InputData *inputLocal = &ctx->input;
+
+  /* --- Returns the normalized profile for a Kurucz line
+         and calculates the Stokes profile components if necessary -- */
+
+  element = &atmosLocal->elements[rlk->pt_index - 1];
+  vtherm  = 2.0*KBOLTZMANN/(AMU * element->weight);
+  vbroad  = sqrt(vtherm*atmosLocal->T[k] + SQ(atmosLocal->vturb[k]));
+
+  v = (lambda/rlk->lambda0 - 1.0) * CLIGHT/vbroad;
+  if (atmosLocal->moving) {
+    if (to_obs)
+      v += vproject(k, mu) / vbroad;
+    else
+      v -= vproject(k, mu) / vbroad;
+  }
+  sv = 1.0 / (SQRTPI * vbroad);
+
+  if (rlk->Grad) {
+    switch (rlk->vdwaals) {
+    case UNSOLD:
+      GvdW = rlk->cross * pow(atmosLocal->T[k], 0.3);
+      break;
+
+    case BARKLEM:
+      GvdW = rlk->cross * pow(atmosLocal->T[k], (1.0 - rlk->alpha)/2.0);
+      break;
+
+    default:
+      GvdW = rlk->GvdWaals;
+      break;
+    }
+    np = atmosLocal->H->n[atmosLocal->H->Nlevel-1];
+    adamp = (rlk->Grad + rlk->GStark * atmosLocal->ne[k] + 
+	     GvdW * (atmosLocal->nHtot[k] - np[k])) * 
+      (rlk->lambda0  * NM_TO_M) / (4.0*PI * vbroad);
+  } else {
+    phi = (fabs(v) <= MAX_GAUSS_DOPPLER) ? exp(-v*v) : 0.0;
+    return phi * sv;
+  }
+
+  if (rlk->polarizable) {
+    sin2_gamma = 1.0 - SQ(atmosLocal->cos_gamma[mu][k]);
+    vB   = (LARMOR * rlk->lambda0) * atmosLocal->B[k] / vbroad;
+    sign = (to_obs) ? 1.0 : -1.0;
+
+    phi_sm = phi_pi = phi_sp = 0.0;
+    psi_sm = psi_pi = psi_sp = 0.0;
+
+    for (nz = 0;  nz < rlk->zm->Ncomponent;  nz++) {
+      H = Voigt(adamp, v - rlk->zm->shift[nz]*vB, &F, HUMLICEK);
+
+      switch (rlk->zm->q[nz]) {
+      case -1:
+	phi_sm += rlk->zm->strength[nz] * H;
+	psi_sm += rlk->zm->strength[nz] * F;
+	break;
+      case  0:
+	phi_pi += rlk->zm->strength[nz] * H;
+	psi_pi += rlk->zm->strength[nz] * F;
+	break;
+      case  1:
+	phi_sp += rlk->zm->strength[nz] * H;
+	psi_sp += rlk->zm->strength[nz] * F;
+      }
+    }
+    phi_sigma = phi_sp + phi_sm;
+    phi_delta = 0.5*phi_pi - 0.25*phi_sigma;
+
+    phi = (phi_delta*sin2_gamma + 0.5*phi_sigma) * sv;
+
+    *phi_Q = sign * phi_delta * sin2_gamma * atmosLocal->cos_2chi[mu][k] * sv;
+    *phi_U = phi_delta * sin2_gamma * atmosLocal->sin_2chi[mu][k] * sv;
+    *phi_V = sign * 0.5*(phi_sp - phi_sm) * atmosLocal->cos_gamma[mu][k] * sv;
+
+    if (inputLocal->magneto_optical) {
+      psi_sigma = psi_sp + psi_sm;
+      psi_delta = 0.5*psi_pi - 0.25*psi_sigma;
+
+      *psi_Q = sign * psi_delta * sin2_gamma * atmosLocal->cos_2chi[mu][k] * sv;
+      *psi_U = psi_delta * sin2_gamma * atmosLocal->sin_2chi[mu][k] * sv;
+      *psi_V = sign * 0.5*(psi_sp - psi_sm) * atmosLocal->cos_gamma[mu][k] * sv;
+    }
+  } else
+   phi = Voigt(adamp, v, NULL, ARMSTRONG) * sv;
+
+  return phi;
+}
+/* ------- end ---------------------------- RLKProfile_ctx.c ------------ */
 
 /* ------- begin -------------------------- RLKZeeman.c ------------- */
 

@@ -246,7 +246,6 @@ bool_t rhf1d(RHContext* ctx, float muz, int rhs_ndep, double *rhs_T, double *rhs
   }
   
   firsttime = FALSE;
-  printf("I GOT HERE 249!!!!\n");
   if(ctx->input.solve_ne >= ITERATION_EOS){
     if(ctx->atmos.atoms[0].active) ctx->atmos.ne_flag = TRUE;
     if(ctx->save_popp && ctx->save_popp->ne_dep){
@@ -259,23 +258,22 @@ bool_t rhf1d(RHContext* ctx, float muz, int rhs_ndep, double *rhs_T, double *rhs
       free(tmp1);
     }
   }
-  printf("I GOT HERE 262!!!!\n");
   /* --- Reallocate stuff and compute background opac --- */
 
 
   UpdateAtmosDep_ctx(ctx);
-  printf("I GOT HERE 268!!!!\n");
   Background_j_ctx(write_analyze_output=FALSE, equilibria_only=FALSE, ctx);
   //convertScales(&ctx->atmos, &ctx->geometry);
   //if(ctx->atmos.H->NLTEpops) hydrostat[0] = TRUE;
+  printf("I GOT HERE 271!!!!\n");
 
   //for(i=0;i<ctx->atmos.Nspace;i++) printf("[%3d] %e\n", i, ctx->geometry.tau_ref[i]);
   
   if(!mpi.stop){
     
     /* --- Init profiles, populations and scattering --- */
-    
-    getProfiles();
+
+    getProfiles_ctx(ctx);
     initSolution_j( myrank, savpop);
 
     if(computing_derivatives || (ctx->input.solve_ne < ITERATION_EOS))

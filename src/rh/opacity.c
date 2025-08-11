@@ -34,7 +34,8 @@
 #include <stdlib.h>
 #include <math.h>
 
-#include "rh.h"
+// #include "rh.h"
+#include "rhf1d.h"
 #include "error.h"
 #include "atom.h"
 #include "atmos.h"
@@ -899,6 +900,140 @@ flags MolecularOpacity(double lambda, int nspect, int mu, bool_t to_obs,
 }
 /* ------- end ---------------------------- MolecularOpacity.c ------ */
 
+
+
+/* ------- begin -------------------------- MolecularOpacity_ctx.c ------ */
+
+flags MolecularOpacity_ctx(double lambda, int nspect, int mu, bool_t to_obs, double *chi, double *eta, double *chip, RHContext *ctx)
+{
+  register int n, k, kr;
+
+  /* --- Opacity due to molecular lines in the background. LTE
+         populations are assumed. If magnetic fields are present
+         the Stokes emission coefficients eta_{Q,U,V} are also
+         calculated.
+         --                                            -------------- */
+
+  int    NrecStokes;
+  double dlamb_char0, dlamb_charN, kT, hc_la, hc, fourPI, hc_4PI,
+    Bijhc_4PI, ni_gi, nj_gj, twohnu3_c2, phi, phi_Q, phi_U, phi_V,
+    psi_Q, psi_U, psi_V, chi_l, *chi_Q, *chi_U, *chi_V,
+    eta_l, *eta_Q, *eta_U, *eta_V, *chip_Q, *chip_U, *chip_V;
+  Molecule        *molecule;
+  MolecularLine   *mrt;
+  flags            backgrflags;
+
+  Atmosphere *atmosLocal = &ctx->atmos;
+  InputData *inputLocal = &ctx->input;
+
+  backgrflags.hasline     = FALSE;
+  backgrflags.ispolarized = FALSE;
+
+  hc     = HPLANCK * CLIGHT;
+  fourPI = 4.0 * PI;
+  hc_4PI = hc / fourPI;
+
+  /* --- Initialize the contributions for this wavelength/angle -- -- */
+
+  if (atmosLocal->Stokes) {
+    NrecStokes = 4;
+
+    /* --- Use pointers to sub-arrays for Q, U, and V -- ------------ */
+
+    chi_Q = chi + atmosLocal->Nspace;
+    chi_U = chi + 2*atmosLocal->Nspace;
+    chi_V = chi + 3*atmosLocal->Nspace;
+
+    eta_Q = eta + atmosLocal->Nspace;
+    eta_U = eta + 2*atmosLocal->Nspace;
+    eta_V = eta + 3*atmosLocal->Nspace;
+
+    if (inputLocal->magneto_optical) {
+      chip_Q = chip;
+      chip_U = chip + atmosLocal->Nspace;
+      chip_V = chip + 2*atmosLocal->Nspace;
+
+      for (k = 0;  k < 3*atmosLocal->Nspace;  k++) chip[k] = 0.0;
+    }
+  } else
+    NrecStokes = 1;
+
+  for (k = 0;  k < NrecStokes*atmosLocal->Nspace;  k++) {
+    chi[k] = 0.0;
+    eta[k] = 0.0;
+  }
+
+  /* --- Loop through the list of molecules and their lines -- ------ */
+
+  for (n = 0;  n < atmosLocal->Nmolecule;  n++) {
+    molecule = &atmosLocal->molecules[n];
+
+    if ((molecule->Nrt > 0  &&  !molecule->active)) {
+      dlamb_char0 = lambda * molecule->mrt[0].qwing *
+	(atmosLocal->vmicro_char / CLIGHT);
+      dlamb_charN = lambda * molecule->mrt[molecule->Nrt-1].qwing *
+	(atmosLocal->vmicro_char / CLIGHT);
+
+      if (lambda >= molecule->mrt[0].lambda0 - dlamb_char0 &&
+	  lambda <= molecule->mrt[molecule->Nrt-1].lambda0 + dlamb_charN) {
+
+	for (kr = 0;  kr < molecule->Nrt;  kr++) {
+	  mrt = &molecule->mrt[kr];
+          dlamb_char0 = lambda * mrt->qwing * (atmosLocal->vmicro_char / CLIGHT);
+
+	  if (fabs(mrt->lambda0 - lambda) <= dlamb_char0) {
+	    hc_la      = (HPLANCK * CLIGHT) / (mrt->lambda0 * NM_TO_M);
+	    Bijhc_4PI  = hc_4PI * mrt->Bij * mrt->isotope_frac * mrt->gi;
+	    twohnu3_c2 = mrt->Aji / mrt->Bji;
+
+	    backgrflags.hasline = TRUE;
+	    if (mrt->polarizable) {
+	      backgrflags.ispolarized = TRUE;
+	      if (mrt->zm == NULL) mrt->zm = MolZeeman(mrt);
+	    }
+
+	    for (k = 0;  k < atmosLocal->Nspace;  k++) {
+	      if (molecule->n[k] > 0.0) {
+                phi = MolProfile_ctx(mrt, k, mu, to_obs, lambda, &phi_Q, &phi_U, &phi_V, &psi_Q, &psi_U, &psi_V, ctx);
+
+		kT    = 1.0 / (KBOLTZMANN * atmosLocal->T[k]);
+		ni_gi = molecule->n[k] * exp(-mrt->Ei * kT) /
+		  molecule->pf[k];
+                nj_gj = ni_gi * exp(-hc_la * kT);
+
+                chi_l = Bijhc_4PI * (ni_gi - nj_gj);
+		eta_l = Bijhc_4PI * twohnu3_c2 * nj_gj;
+
+		chi[k] += chi_l * phi;
+		eta[k] += eta_l * phi;
+
+		if (mrt->zm != NULL) {
+		  chi_Q[k] += chi_l * phi_Q;
+		  chi_U[k] += chi_l * phi_U;
+		  chi_V[k] += chi_l * phi_V;
+
+		  eta_Q[k] += eta_l * phi_Q;
+		  eta_U[k] += eta_l * phi_U;
+		  eta_V[k] += eta_l * phi_V;
+
+		  if (inputLocal->magneto_optical) {
+		    chip_Q[k] += chi_l * psi_Q;
+		    chip_U[k] += chi_l * psi_U;
+		    chip_V[k] += chi_l * psi_V;
+		  }
+		}
+	      }
+	    }
+	  }
+	}
+      }
+    }
+  }
+  return backgrflags;
+}
+/* ------- end ---------------------------- MolecularOpacity_ctx.c ------ */
+
+
 /* ------- begin -------------------------- MolProfile.c ------------ */
 
 double MolProfile(MolecularLine *mrt, int k, int mu, bool_t to_obs,
@@ -975,3 +1110,81 @@ double MolProfile(MolecularLine *mrt, int k, int mu, bool_t to_obs,
   return phi;
 }
 /* ------- end ---------------------------- MolProfile.c ------------ */
+
+
+/* ------- begin -------------------------- MolProfile_ctx.c ------------ */
+
+double MolProfile_ctx(MolecularLine *mrt, int k, int mu, bool_t to_obs, double lambda, double *phi_Q, double *phi_U, double *phi_V, double *psi_Q, double *psi_U, double *psi_V, RHContext *ctx)
+{
+  register int nz;
+
+  double    v, phi_sm, phi_sp, phi_pi, psi_sm, psi_sp, psi_pi, adamp,
+            vB, H, F, sv, phi_sigma, phi_delta, sign, sin2_gamma, phi,
+            psi_sigma, psi_delta;
+  Molecule *molecule = mrt->molecule;
+
+  Atmosphere *atmosLocal = &ctx->atmos;
+  InputData *inputLocal = &ctx->input;
+
+  /* --- Returns the normalized profile for a molecular line,
+         and calculates the Stokes profile components if necessary -- */
+
+  adamp = mrt->Aji * (mrt->lambda0 * NM_TO_M) / (4.0*PI *
+						 molecule->vbroad[k]);
+  v = (lambda/mrt->lambda0 - 1.0) * CLIGHT/molecule->vbroad[k];
+  if (atmosLocal->moving) {
+    if (to_obs)
+      v += vproject(k, mu) / molecule->vbroad[k];
+    else
+      v -= vproject(k, mu) / molecule->vbroad[k];
+  }
+  sv = 1.0 / (SQRTPI * molecule->vbroad[k]);
+
+  if (mrt->polarizable) {
+    sin2_gamma = 1.0 - SQ(atmosLocal->cos_gamma[mu][k]);
+    vB   = (LARMOR * mrt->lambda0) * atmosLocal->B[k] / molecule->vbroad[k];
+    sign = (to_obs) ? 1.0 : -1.0;
+
+    phi_sm = phi_pi = phi_sp = 0.0;
+    psi_sm = psi_pi = psi_sp = 0.0;
+
+    for (nz = 0;  nz < mrt->zm->Ncomponent;  nz++) {
+      H = Voigt(adamp, v - mrt->zm->shift[nz]*vB, &F, HUMLICEK);
+
+      switch (mrt->zm->q[nz]) {
+      case -1:
+	phi_sm += mrt->zm->strength[nz] * H;
+	psi_sm += mrt->zm->strength[nz] * F;
+	break;
+      case  0:
+	phi_pi += mrt->zm->strength[nz] * H;
+	psi_pi += mrt->zm->strength[nz] * F;
+	break;
+      case  1:
+	phi_sp += mrt->zm->strength[nz] * H;
+	psi_sp += mrt->zm->strength[nz] * F;
+      }
+    }
+    phi_sigma = phi_sp + phi_sm;
+    phi_delta = 0.5*phi_pi - 0.25*phi_sigma;
+
+    phi = (phi_delta*sin2_gamma + 0.5*phi_sigma) * sv;
+
+    *phi_Q = sign * phi_delta * sin2_gamma * atmosLocal->cos_2chi[mu][k] * sv;
+    *phi_U = phi_delta * sin2_gamma * atmosLocal->sin_2chi[mu][k] * sv;
+    *phi_V = sign * 0.5*(phi_sp - phi_sm) * atmosLocal->cos_gamma[mu][k] * sv;
+
+    if (inputLocal->magneto_optical) {
+      psi_sigma = psi_sp + psi_sm;
+      psi_delta = 0.5*psi_pi - 0.25*psi_sigma;
+
+      *psi_Q = sign * psi_delta * sin2_gamma * atmosLocal->cos_2chi[mu][k] * sv;
+      *psi_U = psi_delta * sin2_gamma * atmosLocal->sin_2chi[mu][k] * sv;
+      *psi_V = sign * 0.5*(psi_sp - psi_sm) * atmosLocal->cos_gamma[mu][k] * sv;
+    }
+  } else
+   phi = Voigt(adamp, v, NULL, ARMSTRONG) * sv;
+
+  return phi;
+}
+/* ------- end ---------------------------- MolProfile_ctx.c ------------ */

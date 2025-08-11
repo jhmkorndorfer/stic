@@ -42,7 +42,8 @@
 #include <math.h>
 #include <string.h>
 
-#include "rh.h"
+// #include "rh.h"
+#include "rhf1d.h"
 #include "atom.h"
 #include "atmos.h"
 #include "inputs.h"
@@ -407,6 +408,354 @@ void Profile(AtomicLine *line)
 }
 /* ------- end ---------------------------- Profile.c --------------- */
 
+
+
+/* ------- begin -------------------------- Profile.c --------------- */
+
+void Profile_ctx(AtomicLine *line, RHContext *ctx)
+{
+  const char routineName[] = "Profile";
+  register int la, k, mu, n, to_obs, nz;
+
+  char    filename[MAX_LINE_SIZE];
+  int     lamu, Nlamu, NrecStokes;
+  double *adamp = NULL, **v, **v_los, *vB, *sv, *vbroad, Larmor, H, F,
+          wlamu, vk, phi_pi, phi_sm, phi_sp, phi_delta, phi_sigma,
+          psi_pi, psi_sm, psi_sp, psi_delta, psi_sigma, sign, sin2_gamma,
+    *phi, *phi_Q, *phi_U, *phi_V, *psi_Q, *psi_U, *psi_V, dum;
+
+  Atom *atom = line->atom;
+  //ZeemanMultiplet *zm;
+
+  getCPU(3, TIME_START, NULL);
+
+  /* --- Initialize the ratio of PRD to CRD profiles to 1.0, and
+         allocate memory for the elastic collisions in Qelast. This
+         array is filled in Damping.
+
+         If Profile() is called from adjustStokes() then the PRD
+         profile ratio rho should be kept, and should not be 
+         reinitialized. --                             -------------- */
+
+  if (line->PRD){//&& line->rho_prd == NULL) {
+    if(line->rho_prd == NULL){
+      if (input.PRD_angle_dep)
+	Nlamu = 2*atmos.Nrays * line->Nlambda;
+      else
+	Nlamu = line->Nlambda;
+      if(!line->rho_prd) freeMatrix((void**)line->rho_prd);
+	line->rho_prd = matrix_double(Nlamu, atmos.Nspace);
+      //else memset(line->rho_prd,0,Nlamu*atmos.Nspace*sizeof(double));
+      
+      for (la = 0;  la < Nlamu;  la++) {
+	for (k = 0;  k < atmos.Nspace;  k++)
+	  line->rho_prd[la][k] = 1.0;
+      }
+    }
+    if(!line->Qelast) line->Qelast = (double *) calloc(atmos.Nspace, sizeof(double));
+    else memset(line->Qelast,0,atmos.Nspace*sizeof(double));    
+    
+  }
+
+  
+  
+  vbroad = atom->vbroad;
+  adamp  = (double *) calloc(atmos.Nspace, sizeof(double));
+  if (line->Voigt) Damping(line, adamp);
+
+  if(!line->wphi) line->wphi = (double *) calloc(atmos.Nspace, sizeof(double));
+  else memset(line->wphi, 0,atmos.Nspace*sizeof(double));
+
+  if (line->polarizable && (input.StokesMode > FIELD_FREE)) {
+    Larmor = (Q_ELECTRON / (4.0*PI*M_ELECTRON)) * (line->lambda0*NM_TO_M);
+
+    Zeeman(line);
+    sprintf(messageStr,
+	    " -- Atom %2s, line %3d -> %3d has %2d Zeeman components\n",
+	    atom->ID, line->j, line->i, line->zm->Ncomponent);
+    Error(MESSAGE, routineName, messageStr);
+  }
+
+  /* --- Initialize permanent storage for line profiles -- ---------- */
+
+  if (input.limit_memory) {
+    sprintf(filename, (atom->ID[1] == ' ') ?
+	    "profile.%.1s_%d-%d.dat" : "profile.%.2s_%d-%d.dat", atom->ID,
+	    line->j, line->i);
+    if ((line->fd_profile =
+	 open(filename, O_RDWR | O_CREAT, PERMISSIONS)) == -1) {
+      sprintf(messageStr, "Unable to open profile file %s", filename);
+      Error(ERROR_LEVEL_2, routineName, messageStr);
+    }
+
+    if (line->polarizable && (input.StokesMode > FIELD_FREE)) {
+      NrecStokes = (input.magneto_optical) ? 7 : 4;
+      phi = (double *) calloc(NrecStokes*atmos.Nspace, sizeof(double));
+
+      /* --- Assign pointers to subarrays of phi --    -------------- */
+
+      phi_Q = phi + atmos.Nspace;
+      phi_U = phi + 2*atmos.Nspace;
+      phi_V = phi + 3*atmos.Nspace;
+	      
+      if (input.magneto_optical) {
+	psi_Q = phi + 4*atmos.Nspace;
+	psi_U = phi + 5*atmos.Nspace;
+	psi_V = phi + 6*atmos.Nspace;
+      }
+    } else {
+      NrecStokes = 1;
+      phi = (double *) calloc(atmos.Nspace, sizeof(double));
+    }
+  } else {
+    if (atmos.moving || 
+	(line->polarizable && (input.StokesMode > FIELD_FREE))) {
+      Nlamu = 2*atmos.Nrays*line->Nlambda;
+      
+      if(!line->phi) line->phi = matrix_double(Nlamu, atmos.Nspace);
+      else memset(line->phi[0], 0, Nlamu*atmos.Nspace*sizeof(double));
+
+      if (line->polarizable && (input.StokesMode > FIELD_FREE)) {
+	if(!line->phi_Q) line->phi_Q = matrix_double(Nlamu, atmos.Nspace);
+	else memset(line->phi_Q[0], 0, Nlamu*atmos.Nspace*sizeof(double));
+
+	if(!line->phi_U) line->phi_U = matrix_double(Nlamu, atmos.Nspace);
+	else memset(line->phi_U[0], 0, Nlamu*atmos.Nspace*sizeof(double));
+	
+	if(!line->phi_V) line->phi_V = matrix_double(Nlamu, atmos.Nspace);
+	else memset(line->phi_V[0], 0, Nlamu*atmos.Nspace*sizeof(double));
+
+	if (input.magneto_optical) {
+	  if(!line->psi_Q) line->psi_Q = matrix_double(Nlamu, atmos.Nspace);
+	  else memset(line->psi_Q[0], 0, Nlamu*atmos.Nspace*sizeof(double));
+
+	  if(!line->psi_U) line->psi_U = matrix_double(Nlamu, atmos.Nspace);
+	  else memset(line->psi_U[0], 0, Nlamu*atmos.Nspace*sizeof(double));
+	  
+	  if(!line->psi_V) line->psi_V = matrix_double(Nlamu, atmos.Nspace);
+	  else memset(line->psi_V[0], 0, Nlamu*atmos.Nspace*sizeof(double));
+
+	}
+      }
+    } else
+       if(!line->phi) line->phi = matrix_double(line->Nlambda, atmos.Nspace);
+       else memset(line->phi[0], 0, line->Nlambda*atmos.Nspace*sizeof(double));
+    
+  }
+
+  if (line->polarizable && (input.StokesMode > FIELD_FREE)) {
+
+    /* --- Temporary storage for inner loop variables, vB is the
+           Zeeman splitting due to the local magnetic field -- ------ */  
+
+    vB = (double *) calloc(atmos.Nspace, sizeof(double));
+    sv = (double *) calloc(atmos.Nspace, sizeof(double));
+
+    for (k = 0;  k < atmos.Nspace;  k++) {
+      vB[k] = Larmor * atmos.B[k] / vbroad[k];
+      sv[k] = 1.0 / (SQRTPI * vbroad[k]);
+    }
+  }
+
+  /* --- Calculate the absorption profile and store for each line -- */
+  if (atmos.moving ||
+      (line->polarizable && (input.StokesMode > FIELD_FREE))) {
+
+    v_los = matrix_double(atmos.Nrays, atmos.Nspace);
+    for (mu = 0;  mu < atmos.Nrays;  mu++) {
+      for (k = 0;  k < atmos.Nspace;  k++) {
+	v_los[mu][k] = vproject(k, mu) / vbroad[k];
+      }
+    }
+    v = matrix_double(atmos.Nspace, line->Ncomponent);
+
+    for (la = 0;  la < line->Nlambda;  la++) {
+      for (n = 0;  n < line->Ncomponent;  n++) {
+	for (k = 0;  k < atmos.Nspace;  k++) {
+	  v[k][n] = (line->lambda[la] - line->lambda0 - line->c_shift[n]) *
+	    CLIGHT / (vbroad[k] * line->lambda0);
+	}
+      }
+      for (mu = 0;  mu < atmos.Nrays;  mu++) {
+	wlamu = getwlambda_line(line, la) * 0.5*atmos.wmu[mu];
+
+	for (to_obs = 0;  to_obs <= 1;  to_obs++) {
+	  sign = (to_obs) ? 1.0 : -1.0;
+	  lamu = 2*(atmos.Nrays*la + mu) + to_obs;
+
+	  /* --- Assign pointers to the proper phi and psi arrays and
+	     zero the profiles in case of conservative memory
+	     option. In the normal case the call matrix_double
+	     initializes the whole array to zero -- ------------- */
+
+	  if (input.limit_memory) {
+	    for (k = 0;  k< NrecStokes*atmos.Nspace;  k++) phi[k] = 0.0;
+	  } else {
+	    phi = line->phi[lamu];
+	    if (line->polarizable && (input.StokesMode > FIELD_FREE)) {
+	      phi_Q = line->phi_Q[lamu];
+	      phi_U = line->phi_U[lamu];
+	      phi_V = line->phi_V[lamu];
+
+	      if (input.magneto_optical) {
+		psi_Q = line->psi_Q[lamu];
+		psi_U = line->psi_U[lamu];
+		psi_V = line->psi_V[lamu];
+	      }
+	    }
+	  }
+
+	  if (line->polarizable && (input.StokesMode > FIELD_FREE)) {
+
+	    for (k = 0;  k < atmos.Nspace;  k++) {
+	      sin2_gamma = 1.0 - SQ(atmos.cos_gamma[mu][k]);
+
+	      /* --- For the sign conventions to the phi and psi
+		 contributions depending on the direction along the ray
+
+		 See:
+		 -- A. van Ballegooijen: "Radiation in Strong Magnetic
+		    Fields", in Numerical Radiative Transfer, W. Kalkofen
+		    1987, p. 285 --                    -------------- */
+            
+              /* --- Sum over isotopes --              -------------- */
+
+	      for (n = 0;  n < line->Ncomponent;  n++) {
+		vk = v[k][n] + sign * v_los[mu][k];
+
+		phi_sm = phi_pi = phi_sp = 0.0;
+		psi_sm = psi_pi = psi_sp = 0.0;
+
+                /* --- Sum over Zeeman sub-levels --   -------------- */
+
+		for (nz = 0;  nz < line->zm->Ncomponent;  nz++) {
+		  H = Voigt(adamp[k], vk - line->zm->shift[nz]*vB[k],
+			    &F, HUMLICEK);
+
+		  switch (line->zm->q[nz]) {
+		  case -1:
+		    phi_sm += line->zm->strength[nz] * H;
+		    psi_sm += line->zm->strength[nz] * F;
+		    break;
+		  case  0:
+		    phi_pi += line->zm->strength[nz] * H;
+		    psi_pi += line->zm->strength[nz] * F;
+		    break;
+		  case  1:
+		    phi_sp += line->zm->strength[nz] * H;
+		    psi_sp += line->zm->strength[nz] * F;
+		  }
+		}
+		phi_sigma = (phi_sp + phi_sm) * line->c_fraction[n];
+		phi_delta = 0.5*phi_pi * line->c_fraction[n] - 0.25*phi_sigma;
+
+		phi[k]   += (phi_delta*sin2_gamma + 0.5*phi_sigma) * sv[k];
+		phi_Q[k] += sign *
+		  phi_delta * sin2_gamma * atmos.cos_2chi[mu][k] * sv[k];
+		phi_U[k] +=
+		  phi_delta * sin2_gamma * atmos.sin_2chi[mu][k] * sv[k];
+		phi_V[k] += sign *  line->c_fraction[n] * 
+		  0.5*(phi_sp - phi_sm) * atmos.cos_gamma[mu][k] * sv[k];
+
+		if (input.magneto_optical) {
+		  psi_sigma = (psi_sp + psi_sm) * line->c_fraction[n];
+		  psi_delta = 0.5*psi_pi * line->c_fraction[n] -
+		    0.25*psi_sigma;
+
+		  psi_Q[k] += sign *
+		    psi_delta * sin2_gamma * atmos.cos_2chi[mu][k] * sv[k];
+		  psi_U[k] +=
+		    psi_delta * sin2_gamma * atmos.sin_2chi[mu][k] * sv[k];
+		  psi_V[k] += sign * line->c_fraction[n] * 
+		    0.5 * (psi_sp - psi_sm) * atmos.cos_gamma[mu][k] * sv[k];
+		}
+	      }
+              /* --- Ensure proper normalization of the profile -- -- */
+  
+	      line->wphi[k] += wlamu * phi[k];
+	    }
+	  } else {
+	    if(input.fast_isotopic_split){
+	      /* --- Field-free case --                  -------------- */
+	      for (k = 0;  k < atmos.Nspace;  k++) {
+		dum = (line->lambda[la] - line->lambda0 ) * CLIGHT / (vbroad[k] * line->lambda0);
+		vk = dum + sign * v_los[mu][k];	
+		phi[k] += Voigt(adamp[k], vk, NULL, ARMSTRONG) / (SQRTPI * atom->vbroad[k]);
+		line->wphi[k] += phi[k] * wlamu;
+	      }
+	    }else{
+
+	      /* --- Field-free case --                  -------------- */
+	      for (k = 0;  k < atmos.Nspace;  k++) {
+		for (n = 0;  n < line->Ncomponent;  n++) {
+
+		  vk = v[k][n] + sign * v_los[mu][k];
+		  
+		  phi[k] += Voigt(adamp[k], vk, NULL, ARMSTRONG) *
+		    line->c_fraction[n] / (SQRTPI * atom->vbroad[k]);
+		}
+		line->wphi[k] += phi[k] * wlamu;
+	      }
+	    }
+	  }
+	  if (input.limit_memory) writeProfile(line, lamu, phi);
+	}
+      }
+    }
+  } else {
+    
+    /* --- Angle-independent case --                   -------------- */   
+
+    for (la = 0;  la < line->Nlambda;  la++) {
+      wlamu = getwlambda_line(line, la);
+      if (input.limit_memory)
+	for (k = 0;  k < atmos.Nspace;  k++) phi[k] = 0.0;
+      else
+	phi = line->phi[la];
+      
+      for (k = 0;  k < atmos.Nspace;  k++) {
+	for (n = 0;  n < line->Ncomponent;  n++) {
+	  vk = (line->lambda[la] - line->lambda0 - line->c_shift[n]) *
+	    CLIGHT / (line->lambda0 * atom->vbroad[k]);
+	  phi[k] += Voigt(adamp[k], vk, NULL, ARMSTRONG) *
+	    line->c_fraction[n] / (SQRTPI * atom->vbroad[k]);
+	}
+	line->wphi[k] += phi[k] * wlamu;
+      }
+      if (input.limit_memory) writeProfile(line, la, phi);
+    }
+  }
+  /* --- Store the inverse of the profile normalization -- ---------- */
+
+  for (k = 0;  k < atmos.Nspace;  k++) line->wphi[k] = 1.0 / line->wphi[k];
+
+  /* --- Clean up --                                     ------------ */
+
+  free(adamp);
+  if (input.limit_memory) free(phi);
+
+
+  if(atmos.moving || (line->polarizable && (input.StokesMode > FIELD_FREE))){
+    if(line->polarizable && (input.StokesMode > FIELD_FREE)){
+      freeZeeman(line->zm);
+      line->zm = NULL;
+      //free(zm);
+      free(vB);
+      free(sv);
+    }
+    freeMatrix((void **) v);
+    freeMatrix((void **) v_los);
+
+    sprintf(messageStr, "Stokes prof %7.1f", line->lambda0);
+  } else
+    sprintf(messageStr, "Profile %7.1f", line->lambda0);
+
+  getCPU(3, TIME_POLL, messageStr);
+}
+/* ------- end ---------------------------- Profile_ctx.c --------------- */
+
+
+
 /* ------- begin -------------------------- MolecularProfile.c ------ */
 
 void MolecularProfile(MolecularLine *mrt)
@@ -541,3 +890,41 @@ void getProfiles(void)
   getCPU(2, TIME_POLL, "Profiles");
 }
 /* ------- end ---------------------------- getProfiles.c ----------- */
+
+
+/* ------- begin -------------------------- getProfiles.c ----------- */
+
+void getProfiles_ctx(RHContext *ctx)
+{
+  register int nact, kr;
+  Atmosphere *atmosLocal = &ctx->atmos; 
+
+  Atom *atom;
+  Molecule *molecule;
+  AtomicLine *line;
+  MolecularLine *mrt;
+
+  /* --- Calculate profiles for Non-LTE after all necessary ingredients
+         like Hydrogen poulation fro broadening are available -- ---- */
+
+  getCPU(2, TIME_START, NULL);
+
+  for (nact = 0;  nact < atmosLocal->Nactiveatom;  nact++) {
+    atom = atmosLocal->activeatoms[nact];
+    for (kr = 0;  kr < atom->Nline;  kr++) {
+      line = &atom->line[kr];
+      Profile(line);
+    }
+  }
+
+  for (nact = 0;  nact < atmosLocal->Nactivemol;  nact++) {
+    molecule = atmosLocal->activemols[nact];
+    for (kr = 0;  kr < molecule->Nrt;  kr++) {
+      mrt = &molecule->mrt[kr];
+      MolecularProfile(mrt);
+    }
+  }
+
+  getCPU(2, TIME_POLL, "Profiles");
+}
+/* ------- end ---------------------------- getProfiles_ctx.c ----------- */

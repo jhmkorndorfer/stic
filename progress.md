@@ -4,7 +4,7 @@
 
 ### Accomplishments (including missing notes)
 - Currently refactoring rhf1d to try to make it threadsafe...
-- 
+- for loop on Background_j_ctx 1115 might also be insteresting.
 
 ### Challenges
 - 

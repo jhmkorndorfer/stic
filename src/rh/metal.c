@@ -429,7 +429,7 @@ flags passive_bb(double lambda, int nspect, int mu, bool_t to_obs,
 
 flags passive_bb_ctx(double lambda, int nspect, int mu, bool_t to_obs, double *chi, double *eta, double *chip, RHContext *ctx)
 {  
-  const char routineName[] = "passive_bb";
+  const char routineName[] = "passive_bb_ctx";
   register int k, kr, l, m, nc;
   Atmosphere *atmosLocal = &ctx->atmos;
   InputData *inputLocal = &ctx->input;
@@ -535,7 +535,9 @@ flags passive_bb_ctx(double lambda, int nspect, int mu, bool_t to_obs, double *c
 	    if (line->Voigt) {
 	      linelist[entry]->adamp =
 		(double *) malloc(atmosLocal->Nspace * sizeof(double));
+    
 	      Damping_ctx(line, linelist[entry]->adamp, ctx);
+
 	    } else
 	      linelist[entry]->adamp = NULL;
 	  }
@@ -552,9 +554,9 @@ flags passive_bb_ctx(double lambda, int nspect, int mu, bool_t to_obs, double *c
 		CLIGHT / (line->lambda0 * atom->vbroad[k]);
 	      if (atmosLocal->moving) {
 		if (to_obs)
-		  v += vproject(k, mu) / atom->vbroad[k];
+		  v += vproject_ctx(k, mu, ctx) / atom->vbroad[k];
 		else
-		  v -= vproject(k, mu) / atom->vbroad[k];
+		  v -= vproject_ctx(k, mu, ctx) / atom->vbroad[k];
 	      }
 	      if (line->Voigt)
 		phi = Voigt(linelist[entry]->adamp[k], v, NULL,

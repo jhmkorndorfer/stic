@@ -153,7 +153,20 @@ extern "C" {
   bool_t Metal_bf_ctx(double lambda, int Nmetal, struct Atom *metals, double *chi, double *eta, RHContext *ctx);
   flags passive_bb_ctx(double lambda, int nspect, int mu, bool_t to_obs, double *chi, double *eta, double *chip, RHContext *ctx);
   void Damping_ctx(AtomicLine *line, double *adamp, RHContext *ctx);
+  double vproject_ctx(int k, int mu, RHContext *ctx);
   void VanderWaals_ctx(AtomicLine *line, double *GvdW, RHContext *ctx);
+  void Stark_ctx(AtomicLine *line, double *GStark, RHContext *ctx);
+  void StarkLinear_ctx(AtomicLine *line, double *GStark, RHContext *ctx);
+  flags rlk_opacity_ctx(double lambda, int nspect, int mu, bool_t to_obs, double *chi, double *eta, double *scatt, double *chip, RHContext *ctx);
+  void LTEpops_elem_ctx(Element *element, RHContext *ctx);
+  double RLKProfile_ctx(RLK_Line *rlk, int k, int mu, bool_t to_obs, double lambda, double *phi_Q, double *phi_U, double *phi_V, double *psi_Q, double *psi_U, double *psi_V, RHContext *ctx);
+  flags MolecularOpacity_ctx(double lambda, int nspect, int mu, bool_t to_obs, double *chi, double *eta, double *chip, RHContext *ctx);
+  double MolProfile_ctx(MolecularLine *mrt, int k, int mu, bool_t to_obs, double lambda, double *phi_Q, double *phi_U, double *phi_V, double *psi_Q, double *psi_U, double *psi_V, RHContext *ctx);
+  int writeBackground_j_ctx(int la, int mu, bool_t to_obs, double *chi_c, double *eta_c, double *sca_c, double *chip_c, RHContext *ctx);
+  void allocateBack_ctx(int nspect, RHContext *ctx);
+  void getProfiles_ctx(RHContext *ctx);
+  void Profile_ctx(AtomicLine *line, RHContext *ctx);
+
 
 
 

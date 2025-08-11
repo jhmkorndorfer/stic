@@ -8,7 +8,8 @@
 
 #include <math.h>
 
-#include "rh.h"
+// #include "rh.h"
+#include "rhf1d.h"
 #include "atom.h"
 #include "atmos.h"
 #include "geometry.h"
@@ -30,6 +31,17 @@ double vproject(int k, int mu)
   /* --- Calculate projected velocity along ray mu at depth k -- ---- */
 
   return geometry.muz[mu] * geometry.vel[k];
+}
+/* ------- end ---------------------------- vproject.c -------------- */
+
+/* ------- begin -------------------------- vproject.c -------------- */
+
+double vproject_ctx(int k, int mu, RHContext *ctx)
+{
+  /* --- Calculate projected velocity along ray mu at depth k -- ---- */
+  Geometry *geometryLocal = &ctx->geometry;
+
+  return geometryLocal->muz[mu] * geometryLocal->vel[k];
 }
 /* ------- end ---------------------------- vproject.c -------------- */
 

@@ -242,6 +242,59 @@ void LTEpops_elem(Element *element)
 }
 /* ------- end ---------------------------- LTEpops_elem.c ---------- */
 
+/* ------- begin -------------------------- LTEpops_elem_ctx.c ---------- */
+
+void LTEpops_elem_ctx(Element *element, RHContext *ctx)
+{
+  register int k, i;
+
+  bool_t  hunt;
+  double *Uk, *Ukp1, C1, *sum, *CT_ne;
+
+  getCPU(4, TIME_START, NULL);
+  Atmosphere *atmosLocal = &ctx->atmos;
+
+  C1 = (HPLANCK/(2.0*PI*M_ELECTRON)) * (HPLANCK/KBOLTZMANN);
+
+  sum   = (double *) malloc(atmosLocal->Nspace * sizeof(double));
+  CT_ne = (double *) malloc(atmosLocal->Nspace * sizeof(double));
+  Uk    = (double *) malloc(atmosLocal->Nspace * sizeof(double));
+  Ukp1  = (double *) malloc(atmosLocal->Nspace * sizeof(double));
+
+  for (k = 0;  k < atmosLocal->Nspace;  k++) {
+    CT_ne[k] = 2.0 * pow(C1/atmosLocal->T[k], -1.5) / atmosLocal->ne[k];
+    sum[k]   = 1.0;
+    element->n[0][k] = 1.0;
+  }
+
+  Linear(atmosLocal->Npf, atmosLocal->Tpf, element->pf[0],
+         atmosLocal->Nspace, atmosLocal->T, Uk, hunt=TRUE);
+
+  for (i = 1;  i < element->Nstage;  i++) {
+    Linear(atmosLocal->Npf, atmosLocal->Tpf, element->pf[i],
+           atmosLocal->Nspace, atmosLocal->T, Ukp1, hunt=TRUE);
+
+    for (k = 0;  k < atmosLocal->Nspace;  k++) {
+      element->n[i][k] = element->n[i-1][k] * CT_ne[k] *
+        exp(Ukp1[k] - Uk[k] -
+	    element->ionpot[i-1]/(KBOLTZMANN*atmosLocal->T[k]));
+      sum[k] += element->n[i][k];
+    }
+    SWAPPOINTER(Uk, Ukp1);
+  }
+
+  for (k = 0;  k < atmosLocal->Nspace;  k++)
+    element->n[0][k] = element->abund * atmosLocal->nHtot[k] / sum[k];
+  for (i = 1;  i < element->Nstage;  i++) {
+    for (k = 0;  k < atmosLocal->Nspace;  k++)
+      element->n[i][k] *= element->n[0][k];
+  }
+
+  free(sum);     free(CT_ne);
+  free(Uk);      free(Ukp1);
+}
+/* ------- end ---------------------------- LTEpops_elem_ctx.c ---------- */
+
 /* ------- begin -------------------------- LTEmolecule.c ----------- */
 
 void LTEmolecule(Molecule *molecule)

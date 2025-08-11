@@ -353,6 +353,91 @@ void Stark(AtomicLine *line, double *GStark)
 }
 /* ------- end ---------------------------- Stark.c ----------------- */
 
+/* ------- begin -------------------------- Stark_ctx.c ----------------- */
+
+#define AVERAGE_ATOMIC_WEIGHT  28.0
+
+void Stark_ctx(AtomicLine *line, double *GStark, RHContext *ctx)
+{
+  /* --- Quadratic Stark broadening by electrons and singly charged 
+         ions. 
+
+         Gamma = 11.37 * vrel^1/3 * C_4^2/3 * (ne + nion)
+
+	 Use estimate for C_4 from Traving.
+     
+    See: Traving 1960, "Uber die Theorie der Druckverbreiterung
+                 von Spektrallinien", p 93
+
+      -- Mihalas 1978, p. 282ff, and Table 9-1.
+
+      -- David F. Gray, Observation and Analysis of Stellar
+         Photospheres (1992), 2nd ed., p. 216, eq. 11.33
+
+
+         if line->cStark < 0 then Gamma = abs(line->cStark) * ne
+         --                                            -------------- */
+
+  const char routineName[] = "Stark";
+  register int k, ic;
+  Atmosphere *atmosLocal = &ctx->atmos;
+
+  int    Z;
+  double C4, C, Cm, m_electron = M_ELECTRON/AMU, cStark23, cStark,
+         neff_u, neff_l, m_atom_avg = AVERAGE_ATOMIC_WEIGHT, vrel,
+         E_Rydberg;
+  Atom  *atom = line->atom;
+
+  if (line->cStark < 0.0) {
+    cStark = fabs(line->cStark);
+    for (k = 0;  k < atmosLocal->Nspace;  k++)
+      GStark[k] = cStark * atmosLocal->ne[k];
+  } else {
+    /* --- Constants for relative velocity. We assume that nion = ne
+           (see Gray), and that the average atomic weight of ionic
+           perturbers is given by AVERAGE_ATOMIC_WEIGHT. -- --------- */
+    
+    C  = 8.0 * KBOLTZMANN / (PI * AMU * atom->weight);
+    Cm = pow(1.0 + atom->weight/m_electron, 0.16666667) + 
+      pow(1.0 + atom->weight/m_atom_avg, 0.16666667);
+    
+    /* --- Find core charge Z and effective quantum numbers neff_u
+           and neff_l for upper and lower level --     -------------- */
+    
+    Z = atom->stage[line->i] + 1;
+    for (ic = line->i + 1;
+	 ((atom->stage[ic] < atom->stage[line->i]+1) &&
+	  (ic < atom->Nlevel));  ic++);
+    if (atom->stage[ic] == atom->stage[line->i]) {
+      sprintf(messageStr, "Cannot find overlying continuum for level %d",
+	      line->i);
+      Error(ERROR_LEVEL_2, routineName, messageStr);
+    }
+    
+    if ((atom->E[ic] - atom->E[line->i]) <= 0.0 ||
+	(atom->E[ic] - atom->E[line->j]) <= 0.0) {
+      cStark23 = 0.0;
+    } else {
+      
+      E_Rydberg = E_RYDBERG / (1.0 + M_ELECTRON / (atom->weight * AMU));
+      neff_l = Z * sqrt(E_Rydberg / (atom->E[ic] - atom->E[line->i]));
+      neff_u = Z * sqrt(E_Rydberg / (atom->E[ic] - atom->E[line->j]));
+      
+      C4 = (SQ(Q_ELECTRON) / (4.0 * PI * EPSILON_0)) * RBOHR *
+	(2.0*PI * SQ(RBOHR) / HPLANCK) / (18.0 * SQ(Z)*SQ(Z)) *
+	(SQ(neff_u*(5.0*SQ(neff_u) + 1.0)) -
+	 SQ(neff_l*(5.0*SQ(neff_l) + 1.0)));
+      cStark23 = 11.37 * pow(line->cStark * C4, 0.66666667);
+    }
+    
+    for (k = 0;  k < atmosLocal->Nspace;  k++) {
+      vrel = pow(C * atmosLocal->T[k], 0.16666667) * Cm;
+      GStark[k] = cStark23 * vrel * atmosLocal->ne[k];
+    }
+  }
+}
+/* ------- end ---------------------------- Stark_ctx.c ----------------- */
+
 /* ------- begin -------------------------- StarkLinear.c ----------- */
 
 void StarkLinear(AtomicLine *line, double *GStark)
@@ -396,6 +481,52 @@ void StarkLinear(AtomicLine *line, double *GStark)
     GStark[k] = C * pow(atmos.ne[k], 0.66666667);
 }
 /* ------- end ---------------------------- StarkLinear.c ----------- */
+
+/* ------- begin -------------------------- StarkLinear_ctx.c ----------- */
+
+void StarkLinear_ctx(AtomicLine *line, double *GStark, RHContext *ctx)
+{
+  /* --- Linear Stark broadening by electrons for hydrogen lines.
+     
+    See: K. Sutton (1978), JQSRT 20, 333-343
+
+         GStark = a_1 * [0.60 * (n_u^2 - n_l^2) * (N_e)^(2/3) * CM_TO_M^2]
+         --                                            -------------- */
+
+  const char routineName[] = "StarkLinear";
+  register int k;
+
+  char   config[4], *ptr;
+  int    n_upper, n_lower;
+  double a1, C;
+  Atom  *atom = line->atom;
+
+  Atmosphere *atmosLocal = &ctx->atmos;
+
+  if (strstr(atom->ID, "H ") == NULL) {
+    sprintf(messageStr, "Model is not a hydrogen atom: %s", atom->ID);
+    Error(ERROR_LEVEL_2, routineName, messageStr);
+  }
+  /* --- Find principal quantum number of lower and upper level -- -- */
+
+  sscanf(atom->label[line->i], "H I %s", config);
+  ptr = config;  while (isdigit(*ptr)) ptr++;  *ptr = ' ';
+  sscanf(config, "%d", &n_lower);
+
+  sscanf(atom->label[line->j], "H I %s", config);
+  ptr = config;  while (isdigit(*ptr)) ptr++;  *ptr = ' ';
+  sscanf(config, "%d", &n_upper);
+
+  if (n_upper - n_lower == 1)
+    a1 = 0.642;
+  else
+    a1 = 1.0;
+
+  C = a1 * 0.6 * (SQ(n_upper) - SQ(n_lower)) * SQ(CM_TO_M);
+  for (k = 0;  k < atmosLocal->Nspace;  k++)
+    GStark[k] = C * pow(atmosLocal->ne[k], 0.66666667);
+}
+/* ------- end ---------------------------- StarkLinear_ctx.c ----------- */
 
 /* ------- begin -------------------------- Damping.c --------------- */
 
@@ -467,13 +598,13 @@ void Damping_ctx(AtomicLine *line, double *adamp, RHContext *ctx)
   /* --- Add Quadratic Stark broadening --           -------------- */
 
   if (line->cStark != 0.0) {
-    Stark(line, adamp);
+    Stark_ctx(line, adamp, ctx);
     for (k = 0;  k < atmosLocal->Nspace;  k++) Qelast[k] += adamp[k];
   }
   /* --- Add Linear Stark broadening for hydrogen only -- --------- */
 
   if (strstr(atom->ID, "H ")) {
-    StarkLinear(line, adamp);
+    StarkLinear_ctx(line, adamp, ctx);
     for (k = 0;  k < atmosLocal->Nspace;  k++) Qelast[k] += adamp[k];
   }
   /* --- Store the total rate of elastic collisions in case of PRD  */
