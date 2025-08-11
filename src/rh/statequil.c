@@ -129,6 +129,8 @@ void statEquil_ctx(Atom *atom, int isum, RHContext *ctx)
 
   int    i_eliminate, Nlevel;
   double GamDiag, nmax_k, *n_k, **Gamma_k;
+  Atmosphere *atmosLocal = &ctx->atmos;
+  InputData *inputLocal = &ctx->input;
 
   getCPU(3, TIME_START, NULL);
 
