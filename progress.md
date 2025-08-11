@@ -1,5 +1,14 @@
 # Daily Progress Log
 
+## Date: ***11/08/2025***
+
+### Accomplishments (including missing notes)
+- Currently refactoring rhf1d to try to make it threadsafe...
+- 
+
+### Challenges
+- 
+
 ## Date: ***07/08/2025***
 
 ### Accomplishments (including missing notes)
