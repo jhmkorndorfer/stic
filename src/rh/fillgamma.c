@@ -10,7 +10,8 @@
 #include <stdlib.h>
 #include <math.h>
 
-#include "rh.h"
+// #include "rh.h"
+#include "rhf1d.h"
 #include "error.h"
 #include "atom.h"
 #include "atmos.h"
@@ -53,6 +54,22 @@ void initGammaAtom(Atom *atom, double cswitch)
   }
 }
 /* ------- end ---------------------------- initGammaAtom.c --------- */
+
+
+/* ------- begin -------------------------- initGammaAtom_ctx.c --------- */
+
+void initGammaAtom_ctx(Atom *atom, double cswitch, RHContext *ctx)
+{
+  register int ij, k;
+  Atmosphere *atmosLocal = &ctx->atmos;
+  /* --- Add the fixed rates into Gamma --             -------------- */
+
+  for (ij = 0;  ij < SQ(atom->Nlevel);  ij++) {
+    for (k = 0;  k < atmosLocal->Nspace;  k++)
+      atom->Gamma[ij][k] = 0.0;//atom->C[ij][k] * cswitch;
+  }
+}
+/* ------- end ---------------------------- initGammaAtom_ctx.c --------- */
 
 /* ------- begin -------------------------- initGammaMolecule.c ----- */
 

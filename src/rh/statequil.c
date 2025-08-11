@@ -40,7 +40,7 @@ extern Atmosphere atmos;
 extern InputData input;
 extern char messageStr[];
 extern MPI_t mpi;
-extern InputData input;
+// extern InputData input;
 
 
 /* ------- begin -------------------------- statEquil.c ------------- */
@@ -120,6 +120,84 @@ void statEquil(Atom *atom, int isum)
   getCPU(3, TIME_POLL, "Stat Equil");
 }
 /* ------- end ---------------------------- statEquil.c ------------- */
+
+/* ------- begin -------------------------- statEquil_ctx.c ------------- */
+
+void statEquil_ctx(Atom *atom, int isum, RHContext *ctx)
+{
+  register int i, j, ij, k;
+
+  int    i_eliminate, Nlevel;
+  double GamDiag, nmax_k, *n_k, **Gamma_k;
+
+  getCPU(3, TIME_START, NULL);
+
+  Nlevel = atom->Nlevel;
+
+  /* --- Need temporary storage because Gamma has to be solved spatial
+         point by spatial point while depth is normally the fastest
+         running index --                              -------------- */
+
+  n_k     = (double *) malloc(Nlevel * sizeof(double));
+  Gamma_k = matrix_double(Nlevel, Nlevel);
+
+  for (k = 0;  k < atmosLocal->Nspace;  k++) {
+    for (i = 0, ij = 0;  i < Nlevel;  i++) {
+      n_k[i] = atom->n[i][k];
+      for (j = 0;  j < Nlevel;  j++, ij++)
+	Gamma_k[i][j] = atom->Gamma[ij][k] + atom->C[ij][k]; // Now the collisional rates are not added in initGamma
+    }
+
+    if (isum == -1) {
+      i_eliminate  = 0;
+      nmax_k = 0.0;
+      for (i = 0;  i < Nlevel;  i++) {
+	if (n_k[i] > nmax_k) {
+	  nmax_k = n_k[i];
+	  i_eliminate = i;
+	}
+      }
+    } else
+      i_eliminate = isum;
+
+    /* --- For each column i sum over rows to get diagonal elements - */
+
+    for (i = 0;  i < Nlevel;  i++) {
+      GamDiag = 0.0;
+      Gamma_k[i][i] = 0.0;
+      n_k[i] = 0.0;
+
+      for (j = 0;  j < Nlevel;  j++) GamDiag += Gamma_k[j][i];
+      Gamma_k[i][i] = -GamDiag;
+    }
+    /* --- Close homogeneous set with particle conservation-- ------- */
+
+    n_k[i_eliminate] = atom->ntotal[k];
+    for (j = 0;  j < Nlevel;  j++) Gamma_k[i_eliminate][j] = 1.0;
+
+    /* --- Solve for new population numbers at location k -- -------- */
+
+    SolveLinearEq(Nlevel, Gamma_k, n_k, TRUE);
+    //solveLinearCXX(Nlevel, Gamma_k, n_k);
+
+    
+    if (mpi.stop) {
+      free(n_k);
+      freeMatrix((void **) Gamma_k);
+      return; /* Get out if there is a singular matrix */
+      //solveLinearCXX(Nlevel, Gamma_k, n_k);
+      //mpi.stop = 0;
+    }
+    
+    for (i = 0;  i < Nlevel;  i++) atom->n[i][k] = n_k[i];
+  }
+
+  free(n_k);
+  freeMatrix((void **) Gamma_k);
+
+  getCPU(3, TIME_POLL, "Stat Equil");
+}
+/* ------- end ---------------------------- statEquil_ctx.c ------------- */
 
 /* ------- begin -------------------------- statEquilMolecule.c ----- */
 

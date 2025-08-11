@@ -272,9 +272,10 @@ bool_t rhf1d(RHContext* ctx, float muz, int rhs_ndep, double *rhs_T, double *rhs
   if(!mpi.stop){
     
     /* --- Init profiles, populations and scattering --- */
-
     getProfiles_ctx(ctx);
-    initSolution_j( myrank, savpop);
+    printf("I GOT HERE 277!!!!\n");
+    initSolution_j_ctx( myrank, savpop, ctx);
+    printf("I GOT HERE 279!!!!\n");
 
     if(computing_derivatives || (ctx->input.solve_ne < ITERATION_EOS))
        read_populations(ctx, save_pop,0);
@@ -314,7 +315,10 @@ bool_t rhf1d(RHContext* ctx, float muz, int rhs_ndep, double *rhs_T, double *rhs
 	niter++;
       }
     } else dpopmax = 1.0e13;
-  } else dpopmax = 1.0e13;
+  } else {
+    dpopmax = 1.0e13;
+    printf("I GOT HERE 321!!!!\n");
+  }
   
   bool_t converged = dpopmax < ctx->input.iterLimit;
 

@@ -697,6 +697,22 @@ bool_t containsPRDline(ActiveSet *as)
   return FALSE;
 }
 
+bool_t containsPRDline_ctx(ActiveSet *as, RHContext *ctx)
+{
+  register int n, nact;
+  Atmosphere *atmosLocal = &ctx->atmos;
+
+  for (nact = 0;  nact < atmosLocal->Nactiveatom;  nact++) {
+    for (n = 0;  n < as->Nactiveatomrt[nact];  n++) {
+      if (as->art[nact][n].type == ATOMIC_LINE &&
+	  as->art[nact][n].ptype.line->PRD) {
+	return TRUE;
+      }
+    }
+  }
+  return FALSE;
+}
+
 bool_t containsUnconvergedAtom(ActiveSet *as)
 {
   register int n, nact;

@@ -166,6 +166,23 @@ extern "C" {
   void allocateBack_ctx(int nspect, RHContext *ctx);
   void getProfiles_ctx(RHContext *ctx);
   void Profile_ctx(AtomicLine *line, RHContext *ctx);
+  void writeProfile_ctx(AtomicLine *line, int lamu, double *phi, RHContext *ctx);
+  void MolecularProfile_ctx(MolecularLine *mrt, RHContext *ctx);
+  void MolecularDamping_ctx(MolecularLine *mrt, double *adamp, RHContext *ctx);
+  void initSolution_j_ctx( int myrank, int savepop, RHContext *ctx);
+  void initSolution_alloc2_ctx(int myrank, RHContext *ctx);
+  bool_t containsPRDline_ctx(ActiveSet *as, RHContext *ctx);
+  void zeroRadiation_ctx(Atom *atom, int nact, RHContext *ctx);
+  void initGammaAtom_ctx(Atom *atom, double cswitch, RHContext *ctx);
+  void statEquil_ctx(Atom *atom, int isum, RHContext *ctx);
+  void COcollisions_ctx(struct Molecule *molecule, RHContext *ctx);
+  void H2collisions_ctx(struct Molecule *molecule, RHContext *ctx);
+
+
+
+
+
+
 
 
 

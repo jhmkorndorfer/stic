@@ -17,7 +17,8 @@
 
 #include <unistd.h>
 
-#include "rh.h"
+// #include "rh.h"
+#include "rhf1d.h"
 #include "atom.h"
 #include "atmos.h"
 #include "spectrum.h"
@@ -398,6 +399,37 @@ void writeProfile(AtomicLine *line, int lamu, double *phi)
     Nrecphi = 1;
 
   recordsize = Nrecphi * atmos.Nspace * sizeof(double);
+  offset     = recordsize * lamu;
+
+  result &= (pwrite(line->fd_profile, phi, recordsize, offset) ==
+	     recordsize);
+
+  if (!result) Error(ERROR_LEVEL_2, routineName, "Error writing file");
+}
+/* ------- end ---------------------------- writeProfile.c ---------- */
+
+/* ------- begin -------------------------- writeProfile.c ---------- */
+
+void writeProfile_ctx(AtomicLine *line, int lamu, double *phi, RHContext *ctx)
+{
+  InputData *inputLocal = &ctx->input;
+  Atmosphere *atmosLocal = &ctx->atmos;
+  const char routineName[] = "writeProfile_ctx";
+
+  int    Nrecphi;
+  bool_t result = TRUE;
+  size_t recordsize;
+  off_t  offset;
+
+  if (line->polarizable && (inputLocal->StokesMode > FIELD_FREE)) {
+    if (inputLocal->magneto_optical)
+      Nrecphi = 7;
+    else
+      Nrecphi = 4;
+  } else
+    Nrecphi = 1;
+
+  recordsize = Nrecphi * atmosLocal->Nspace * sizeof(double);
   offset     = recordsize * lamu;
 
   result &= (pwrite(line->fd_profile, phi, recordsize, offset) ==

@@ -642,3 +642,23 @@ void MolecularDamping(MolecularLine *mrt, double *adamp)
 }
 /* ------- end ---------------------------- MolecularDamping.c ------ */
 
+/* ------- begin -------------------------- MolecularDamping_ctx.c ------ */
+
+void MolecularDamping_ctx(MolecularLine *mrt, double *adamp, RHContext *ctx)
+{
+  register int k;
+
+  Atmosphere *atmosLocal = &ctx->atmos;
+  double cDop;
+  Molecule *molecule;
+
+  cDop = (NM_TO_M * mrt->lambda0) / (4.0 * PI);
+  molecule = mrt->molecule;
+
+  /* --- For now only natural broadening due to the line itself. -- - */
+
+  for (k = 0;  k < atmosLocal->Nspace;  k++)
+    adamp[k] = mrt->Aji * cDop / molecule->vbroad[k];
+}
+/* ------- end ---------------------------- MolecularDamping_ctx.c ------ */
+
