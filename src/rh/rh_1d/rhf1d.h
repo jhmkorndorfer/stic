@@ -208,6 +208,8 @@ extern "C" {
   double Feautrier_ctx(int nspect, int mu, double *chi, double *S, enum FeautrierOrder F_order, double *P, double *Psi, RHContext *ctx);
   void writeJlambda_ctx(int nspect, double *J, RHContext *ctx);
   void writeJ20lambda_ctx(int nspect, double *J20, RHContext *ctx);
+  void Piecewise_Bezier3_ctx(int nspect, int mu, bool_t to_obs, double *chi, double *S, double *I, double *Psi, RHContext *ctx);
+
 
 
 

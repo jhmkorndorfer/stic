@@ -293,6 +293,8 @@ inline void Bezier3_coeffs(double dt, double *alpha, double *beta,
     }
   }
 }
+
+
 void PiecewiseStokesBezier3(int nspect, int mu, bool_t to_obs,
 			    double *chi, double **S, double **I, double *Psi)
 {
@@ -899,6 +901,205 @@ void Piecewise_Bezier3(int nspect, int mu, bool_t to_obs,
     case REFLECTIVE:
       sprintf(messageStr, "Boundary condition not implemented: %d",
 	      geometry.vboundary[BOTTOM]);
+      Error(ERROR_LEVEL_2, routineName, messageStr);
+    }
+  }
+  
+  I[k_start] = I_upw;
+  if (Psi) Psi[k_start] = 0.0;
+  
+  /* set variables for first iteration to allow simple 
+     shift for all next iterations */
+
+  k=k_start+dk;
+  dsup = fabs(z[k] - z[k-dk]) * zmu;
+  dsdn = fabs(z[k+dk] - z[k]) * zmu;
+  dchi_up= (chi1[k] - chi1[k-dk])/dsup;
+
+  /*  dchi/ds at central point */
+
+  dchi_c = cent_deriv(dsup,dsdn,chi1[k-dk],chi1[k],chi1[k+dk]);
+  
+  /* --- upwind path_length (Bezier3 integration) --- */
+
+  c1 = (chi1[k]    - (dsup*0.333333333333333333) * dchi_c);
+  c2 = (chi1[k-dk] + (dsup*0.333333333333333333) * dchi_up);
+  
+  dtau_uw =  dsup * (chi1[k] + chi1[k-dk] + c1 + c2) * 0.25;
+
+  
+  /* dS/dtau at upwind point */
+
+  dS_up = (S[k]-S[k-dk]) / dtau_uw;
+
+  /* --- Solve transfer along ray --                   -------------- */
+
+  for (k = k_start+dk;  k != k_end+dk;  k += dk) {
+    
+    if(k != k_end){
+      
+      /* downwind path length */
+      dsdn = fabs(z[k+dk] - z[k]   ) * zmu;
+  
+      
+      /* dchi/ds at downwind point */
+      
+      if (fabs(k-k_end)>1) {
+	dsdn2=fabs(z[k+2*dk] - z[k+dk]) * zmu;
+	dchi_dn = cent_deriv(dsdn,dsdn2,chi1[k],chi1[k+dk],chi1[k+2*dk]);       
+      } else {
+	dchi_dn=(chi1[k+dk]-chi1[k])/dsdn;
+      }
+
+
+      /* --- Do not clip control points, it fails if there is much estimulated emission --- */
+      
+      c1 = (chi1[k]    + (dsdn*0.3333333333333333333) * dchi_c);
+      c2 = (chi1[k+dk] - (dsdn*0.3333333333333333333) * dchi_dn);
+      
+      /* downwind optical path length */
+      
+      dtau_dw =  dsdn * (chi1[k] + chi1[k+dk] + c1 + c2) * 0.25;
+      tmp += dtau_uw;
+
+      /* ---  dS/dt at central point --- */
+    
+      dS_c = cent_deriv(dtau_uw,dtau_dw,S[k-dk],S[k],S[k+dk]);
+      
+    }else{
+
+      /* --- Last interval, use linear approx for the derivative at 
+	 the central point --- */
+      
+      dS_c = (S[k] -S[k-dk]) / dtau_uw;
+    }
+    
+    
+    /* --- compute interpolation parameters --- */
+    
+    dt03 = dtau_uw*0.33333333333333333333333;
+    Bezier3_coeffs(dtau_uw, &alpha, &beta, &gamma, &theta, &eps);
+    
+    
+    
+    /* --- Source function control points --- */
+       
+    c1 = (S[k]    - dt03 * dS_c);
+    c2 = (S[k-dk] + dt03 * dS_up);   
+    
+    /* --- Solve integral in this interval --- */
+    
+    I[k]= I[k-dk]*eps + beta*S[k] + alpha*S[k-dk] + theta * c1 + gamma * c2; 
+    
+
+    /* --- Diagonal operator --- */
+    
+    if (Psi) Psi[k] = beta + theta;
+    
+    /* --- Re-use downwind quantities for next upwind position -- --- */
+    
+    dsup=dsdn;
+    dchi_up=dchi_c;
+    dchi_c=dchi_dn;
+    dtau_uw=dtau_dw;
+    dS_up = dS_c;
+  }
+
+  if(chi1 != chi)
+    free(chi1);
+  
+}
+
+
+void Piecewise_Bezier3_ctx(int nspect, int mu, bool_t to_obs, double *chi, double *S, double *I, double *Psi, RHContext *ctx)
+{
+  
+  /* ---
+     Cubic Bezier solver for unpolarized light
+     Coded by J. de la Cruz Rodriguez (ISP-SU 2017)
+
+     Reference:
+     J. de la Cruz Rodriguez & N. Piskunov (2013), Auer (2003)
+
+     Comments: 
+        JdlCR: We only check that the control points of the opacity
+	       and source function are always above zero to avoid having
+	       a negative interpolant. 
+     
+     --- */
+  
+  register int k,i;
+  const char routineName[] = "Piecewise_Bezier3_ctx";
+  Geometry *geometryLocal = &ctx->geometry;
+  Atmosphere *atmosLocal = &ctx->atmos;
+  Spectrum *spectrumLocal = &ctx->spectrum;
+
+  int    k_start, k_end, dk, Ndep = geometryLocal->Ndep;
+  double dtau_uw, dtau_dw, dS_uw, I_upw, c1, c2, w[3],
+          Bnu[2];
+  double dsup,dsdn,dt,dt03,eps=0,alpha=0,beta=0,gamma=0,theta=0;
+  double dS_up,dS_c,dchi_up,dchi_c,dchi_dn,dsdn2, tmp = 0.0;
+  double *z, *chi1;
+  
+  if(FALSE){
+    chi1 = (double*)malloc(Ndep * sizeof(double));//scl_opac(Ndep, chi);
+    for(i=0;i<Ndep;i++) chi1[i] = chi[i] / atmosLocal->rho[i];
+    z = geometryLocal->cmass;//
+  }else{
+    chi1 = chi;
+    z = geometryLocal->height;
+  }
+  
+  const double zmu = 1.0 / geometryLocal->muz[mu];
+
+  /* --- Distinguish between rays going from BOTTOM to TOP
+         (to_obs == TRUE), and vice versa --      -------------- */
+
+  if (to_obs) {
+    dk      = -1;
+    k_start = Ndep-1;
+    k_end   = 0;
+  } else {
+    dk      = 1;
+    k_start = 0;
+    k_end   = Ndep-1;
+  }
+  dtau_uw = 0.5 * zmu * (chi1[k_start] + chi1[k_start+dk]) *
+    fabs(z[k_start] - z[k_start+dk]);
+  dS_uw = (S[k_start] - S[k_start+dk]) / dtau_uw;
+
+  /* --- Boundary conditions --                        -------------- */
+
+  if (to_obs) {
+    switch (geometryLocal->vboundary[BOTTOM]) {
+    case ZERO:
+      I_upw = 0.0;
+      break;
+    case THERMALIZED:
+      Planck(2, &atmosLocal->T[Ndep-2], spectrumLocal->lambda[nspect], Bnu);
+      I_upw = Bnu[1] - (Bnu[0] - Bnu[1]) / dtau_uw;
+      break;
+    case IRRADIATED:
+      I_upw = geometryLocal->Ibottom[nspect][mu];
+    case REFLECTIVE:
+      sprintf(messageStr, "Boundary condition not implemented: %d",
+	      geometryLocal->vboundary[BOTTOM]);
+      Error(ERROR_LEVEL_2, routineName, messageStr);
+    }
+  } else {
+    switch (geometryLocal->vboundary[TOP]) {
+    case ZERO:
+      I_upw = 0.0;
+      break;
+    case THERMALIZED:
+      Planck(2, &atmosLocal->T[0], spectrumLocal->lambda[nspect], Bnu);
+      I_upw = Bnu[0] - (Bnu[1] - Bnu[0]) / dtau_uw;
+      break;
+    case IRRADIATED:
+      I_upw = geometryLocal->Itop[nspect][mu];
+    case REFLECTIVE:
+      sprintf(messageStr, "Boundary condition not implemented: %d",
+	      geometryLocal->vboundary[BOTTOM]);
       Error(ERROR_LEVEL_2, routineName, messageStr);
     }
   }
