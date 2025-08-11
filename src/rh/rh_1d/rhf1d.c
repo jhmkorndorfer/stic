@@ -280,7 +280,7 @@ bool_t rhf1d(RHContext* ctx, float muz, int rhs_ndep, double *rhs_T, double *rhs
     if(computing_derivatives || (ctx->input.solve_ne < ITERATION_EOS)){
        read_populations(ctx, save_pop,0);
     }
-    printf("I GOT HERE 284!!!!\n");
+    
     if((savpop == 0) && 1){
       ctx->input.Ngdelay = min(15,ctx->input.Ngdelay) ;
       ctx->input.Ngperiod = min(13,ctx->input.Ngperiod) ;
@@ -289,8 +289,9 @@ bool_t rhf1d(RHContext* ctx, float muz, int rhs_ndep, double *rhs_T, double *rhs
 
     // for(niter=0; niter<ctx->spectrum.nPRDlines; niter++)
     // fprintf(stderr,"prdline->frac[0][0]=%e\n", ctx->spectrum.PRDlines[niter]->frac[0][0]);
-    
-    initScatter();
+
+    initScatter_ctx(ctx);
+    printf("I GOT HERE 294!!!!\n");
     
     //getCPU(1, TIME_POLL, "Total Initialize");
     
@@ -298,6 +299,7 @@ bool_t rhf1d(RHContext* ctx, float muz, int rhs_ndep, double *rhs_T, double *rhs
     /* --- Solve radiative transfer for active ingredients -- --------- */
     
     Iterate_j(ctx->input.NmaxIter, ctx->input.iterLimit, &dpopmax);
+    printf("I GOT HERE 302!!!!\n");
     if(isnan(dpopmax) || isinf(dpopmax) || dpopmax < 0){
       mpi.stop = true;
     }

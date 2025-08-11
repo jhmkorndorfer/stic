@@ -63,6 +63,8 @@ void splineCoef(int N, double *x, double *y)
   }
   Ntable = N;
   xtable = x;  ytable = y;
+  //POSSIBLE BUGS HERE!! Race condition
+
 }
 /* ------- end ---------------------------- splineCoef.c ------------ */
 

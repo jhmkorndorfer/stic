@@ -171,12 +171,71 @@ extern "C" {
   void MolecularDamping_ctx(MolecularLine *mrt, double *adamp, RHContext *ctx);
   void initSolution_j_ctx( int myrank, int savepop, RHContext *ctx);
   void initSolution_alloc2_ctx(int myrank, RHContext *ctx);
-  bool_t containsPRDline_ctx(ActiveSet *as, RHContext *ctx);
   void zeroRadiation_ctx(Atom *atom, int nact, RHContext *ctx);
   void initGammaAtom_ctx(Atom *atom, double cswitch, RHContext *ctx);
   void statEquil_ctx(Atom *atom, int isum, RHContext *ctx);
   void COcollisions_ctx(struct Molecule *molecule, RHContext *ctx);
   void H2collisions_ctx(struct Molecule *molecule, RHContext *ctx);
+  void initScatter_ctx(RHContext *ctx);
+  bool_t readRadRate_ctx(Atom *atom, RHContext *ctx);
+  bool_t xdr_radrate_ctx(XDR *xdrs, Atom *atom, RHContext *ctx);
+  void PRDScatter_ctx(AtomicLine *PRDline, enum Interpolation representation, RHContext *ctx);
+  void PRDAngleApproxScatter_ctx(AtomicLine *PRDline, enum Interpolation representation, RHContext *ctx);
+  void PRDAngleScatter_ctx(AtomicLine *PRDline, enum Interpolation representation, RHContext *ctx);
+  void readImu_ctx(int nspect, int mu, bool_t to_obs, double *I, RHContext *ctx);
+  double solveSpectrum_ctx(bool_t eval_operator, bool_t redistribute, int iter, bool_t synth_all, RHContext *ctx);
+  void zeroRates_ctx(bool_t redistribute, RHContext *ctx);
+  double Formal_ctx(int nspect, bool_t eval_operator, bool_t redistribute, int iter, RHContext *ctx);
+  void alloc_as_ctx(int nspect, bool_t crosscoupling, RHContext *ctx);
+  bool_t containsPolarized_ctx(ActiveSet *as, RHContext *ctx);
+  bool_t containsBoundBound_ctx(ActiveSet *as, RHContext *ctx);
+  bool_t containsPRDline_ctx(ActiveSet *as, RHContext *ctx);
+  void readJlambda_ctx(int nspect, double *J, RHContext *ctx);
+  void readJ20lambda_ctx(int nspect, double *J20, RHContext *ctx);
+  int readBackground_j_ctx(int la, int mu, bool_t to_obs, RHContext *ctx);
+  void Opacity_ctx(int nspect, int mu, bool_t to_obs, bool_t initialize, RHContext *ctx);
+  void readProfile_ctx(AtomicLine *line, int lamu, double *phi, RHContext *ctx);
+  void addtoCoupling_ctx(int nspect, RHContext *ctx);
+  void PiecewiseStokesBezier3_ctx(int nspect, int mu, bool_t to_obs, double *chi, double **S, double **I, double *Psi, RHContext *ctx);
+  void StokesK_ctx(int nspect, int k, double chi_I, double K[4][4], RHContext *ctx);
+  void PiecewiseStokes_ctx(int nspect, int mu, bool_t to_obs, double *chi_I, double **S, double **I, double *Psi, RHContext *ctx);
+  void Piecewise_Hermite_1D_ctx(int nspect, int mu, bool_t to_obs, double *chi, double *S, double *I, double *Psi, RHContext *ctx);
+  void Piecewise_1D_ctx(int nspect, int mu, bool_t to_obs, double *chi, double *S, double *I, double *Psi, RHContext *ctx);
+  void addtoGamma_ctx(int nspect, double wmu, double *I, double *Psi, RHContext *ctx);
+  bool_t containsActive_ctx(ActiveSet *as, RHContext *ctx);
+  void addtoRates_ctx(int nspect, int mu, bool_t to_obs, double wmu, double *I, bool_t redistribute, RHContext *ctx);
+  void writeImu_ctx(int nspect, int mu, bool_t to_obs, double *I, RHContext *ctx);
+  double Feautrier_ctx(int nspect, int mu, double *chi, double *S, enum FeautrierOrder F_order, double *P, double *Psi, RHContext *ctx);
+  void writeJlambda_ctx(int nspect, double *J, RHContext *ctx);
+  void writeJ20lambda_ctx(int nspect, double *J20, RHContext *ctx);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

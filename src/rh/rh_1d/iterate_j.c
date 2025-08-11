@@ -284,6 +284,78 @@ double solveSpectrum(bool_t eval_operator, bool_t redistribute, int iter, bool_t
 }
 /* ------- end ---------------------------- solveSpectrum.c --------- */
 
+/* ------- begin -------------------------- solveSpectrum_ctx.c --------- */
+
+double solveSpectrum_ctx(bool_t eval_operator, bool_t redistribute, int iter, bool_t synth_all, RHContext *ctx)
+{
+  register int nspect, n, nt, k;
+  Atmosphere *atmosLocal = &ctx->atmos;
+  InputData *inputLocal = &ctx->input;
+  Spectrum *spectrumLocal = &ctx->spectrum;
+
+  int         Nthreads, lambda_max;
+  double      dJ, dJmax;
+  pthread_t  *thread_id;
+  threadinfo *ti;
+
+  /* --- Administers the formal solution for each wavelength. When
+         inputLocal->Nthreads > 1 the solutions are performed concurrently
+         in Nthreads threads. These are POSIX style threads.
+
+    See: - David R. Butenhof, Programming with POSIX threads,
+           Addison & Wesley.
+
+         - Multithreaded Programming Guide, http://sun.docs.com
+           (search for POSIX threads).
+
+         When solveSpectrum is called with redistribute == TRUE only
+         wavelengths that have an active PRD line are solved. The
+         redistribute key is passed to the addtoRates routine via
+         Formal so that only the radiative rates of PRD lines are
+         updated. These are needed for the emission profile ratio \rho.
+         --                                            -------------- */
+
+  getCPU(3, TIME_START, NULL);
+
+  /* --- First zero the radiative rates --             -------------- */
+
+  zeroRates_ctx(redistribute, ctx);
+  lambda_max = 0;
+  dJmax = 0.0;
+
+  // zero out J in gas parcel's frame
+  if (spectrumLocal->updateJ && inputLocal->PRD_angle_dep == PRD_ANGLE_APPROX
+      && atmosLocal->Nrays > 1  && atmosLocal->NPRDactive > 0){
+      memset(&spectrumLocal->Jgas[0][0],0,spectrumLocal->nJlam*atmosLocal->Nspace*sizeof(double));
+
+  }
+
+  
+    /* --- Else call the solution for wavelengths sequentially -- --- */
+      
+    for (nspect = 0;  nspect < spectrumLocal->Nspect;  nspect++) {
+      if (!redistribute ||
+	  (redistribute && containsPRDline_ctx(&spectrumLocal->as[nspect], ctx))) {
+	  dJ = Formal_ctx(nspect, eval_operator, redistribute, iter, ctx);
+	if (dJ > dJmax) {
+	  dJmax = dJ;
+	  lambda_max = nspect;
+	}
+      }
+    }
+  
+
+  sprintf(messageStr, " Spectrum max delta J = %6.4E (lambda#: %d)\n",
+	  dJmax, lambda_max);
+  Error(MESSAGE, NULL, messageStr);
+
+  getCPU(3, TIME_POLL,
+	 (eval_operator) ? "Spectrum & Operator" : "Solve Spectrum");
+
+  return dJmax;
+}
+/* ------- end ---------------------------- solveSpectrum_ctx.c --------- */
+
 /* ------- begin -------------------------- Formal_pthread.c -------- */
 
 void *Formal_pthread(void *argument)

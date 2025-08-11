@@ -20,7 +20,8 @@
 
 #include <math.h>
 
-#include "rh.h"
+// #include "rh.h"
+#include "rhf1d.h"
 #include "error.h"
 #include "atom.h"
 #include "atmos.h"
@@ -230,6 +231,139 @@ void Piecewise_1D(int nspect, int mu, bool_t to_obs,
   
 }
 /* ------- end ---------------------------- Piecewise_1D.c ---------- */
+
+
+/* ------- begin -------------------------- Piecewise_1D_ctx.c ---------- */
+
+void Piecewise_1D_ctx(int nspect, int mu, bool_t to_obs, double *chi, double *S, double *I, double *Psi, RHContext *ctx)
+{
+  register int k, i;
+  Atmosphere *atmosLocal = &ctx->atmos;
+  Spectrum *spectrumLocal = &ctx->spectrum;
+  Geometry *geometryLocal = &ctx->geometry;
+
+  int    k_start, k_end, dk, Ndep = geometryLocal->Ndep;
+  double dtau_uw, dtau_dw, dS_uw, I_upw, dS_dw, c1, c2, w[3],
+         zmu, Bnu[2];
+
+  double *z, *chi1;
+  
+  if(FALSE){
+    chi1 = (double*)malloc(Ndep * sizeof(double));//scl_opac(Ndep, chi);
+    for(i=0;i<Ndep;i++) chi1[i] = chi[i] / atmosLocal->rho[i];
+    z = geometryLocal->cmass;//
+  }else{
+    chi1 = chi;
+    z = geometryLocal->height;
+  }
+  
+  zmu = 0.5 / geometryLocal->muz[mu];
+
+  /* --- Distinguish between rays going from BOTTOM to TOP
+         (to_obs == TRUE), and vice versa --      -------------- */
+
+  if (to_obs) {
+    dk      = -1;
+    k_start = Ndep-1;
+    k_end   = 0;
+  } else {
+    dk      = 1;
+    k_start = 0;
+    k_end   = Ndep-1;
+  }
+  dtau_uw = zmu * (chi1[k_start] + chi1[k_start+dk]) *
+    fabs(z[k_start] - z[k_start+dk]);
+  dS_uw = (S[k_start] - S[k_start+dk]) / dtau_uw;
+
+  /* --- Boundary conditions --                        -------------- */
+
+  if (to_obs) {
+    switch (geometryLocal->vboundary[BOTTOM]) {
+    case ZERO:
+      I_upw = 0.0;
+      break;
+    case THERMALIZED:
+      Planck(2, &atmosLocal->T[Ndep-2], spectrumLocal->lambda[nspect], Bnu);
+      I_upw = Bnu[1] - (Bnu[0] - Bnu[1]) / dtau_uw;
+      break;
+    case IRRADIATED:
+      I_upw = geometryLocal->Ibottom[nspect][mu];
+    }
+  } else {
+    switch (geometryLocal->vboundary[TOP]) {
+    case ZERO:
+      I_upw = 0.0;
+      break;
+    case THERMALIZED:
+      Planck(2, &atmosLocal->T[0], spectrumLocal->lambda[nspect], Bnu);
+      I_upw = Bnu[0] - (Bnu[1] - Bnu[0]) / dtau_uw;
+      break;
+    case IRRADIATED:
+      I_upw = geometryLocal->Itop[nspect][mu];
+    }
+  }
+  I[k_start] = I_upw;
+  if (Psi) Psi[k_start] = 0.0;
+
+  /* --- Solve transfer along ray --                   -------------- */
+
+  for (k = k_start+dk;  k != k_end+dk;  k += dk) {
+    w3(dtau_uw, w);
+
+    if (k != k_end) {
+
+      /* --- Piecewise quadratic here --               -------------- */ 
+
+      dtau_dw = zmu * (chi1[k] + chi1[k+dk]) *
+	fabs(z[k] - z[k+dk]);
+      dS_dw   = (S[k] - S[k+dk]) / dtau_dw;
+
+
+      /* Tiago: commenting this out to always keep linear piecewise
+      c1 = (dS_uw*dtau_dw + dS_dw*dtau_uw);
+      c2 = (dS_uw - dS_dw);
+      I[k] = (1.0 - w[0])*I_upw + w[0]*S[k] +
+	(w[1]*c1 + w[2]*c2) / (dtau_uw + dtau_dw);
+      */
+
+      /* --- Try piecewise linear if quadratic gives negative
+             monochromatic intensity --                -------------- */ 
+      /*
+      if (I[k] < 0.0) { */
+      c1   = dS_uw;
+      I[k] = (1.0 - w[0])*I_upw + w[0]*S[k] + w[1]*c1;
+
+      if (Psi) Psi[k] = w[0] - w[1]/dtau_uw;
+      
+      /*
+      } else {
+	if (Psi) {
+	  c1 = dtau_uw - dtau_dw;
+	  Psi[k] = w[0] + (w[1]*c1 - w[2]) / (dtau_uw * dtau_dw);
+	}
+      }
+      */
+    } else {
+	
+      /* --- Piecewise linear integration at end of ray -- ---------- */
+
+      I[k] = (1.0 - w[0])*I_upw + w[0]*S[k] + w[1]*dS_uw;
+      if (Psi) Psi[k] = w[0] - w[1] / dtau_uw;
+    }
+    I_upw = I[k];
+
+    /* --- Re-use downwind quantities for next upwind position -- --- */
+
+    dS_uw   = dS_dw;
+    dtau_uw = dtau_dw;
+  }
+
+  if(chi1 != chi)
+    free(chi1);
+  
+}
+/* ------- end ---------------------------- Piecewise_1D_ctx.c ---------- */
+
 
 /* ------- begin -------------------------- PieceBezier_1D.c -------- */
 
@@ -539,6 +673,172 @@ void Piecewise_Hermite_1D(int nspect, int mu, bool_t to_obs,
   //exit(0);
   
 }
+
+void Piecewise_Hermite_1D_ctx(int nspect, int mu, bool_t to_obs, double *chi, double *S, double *I, double *Psi, RHContext *ctx)
+{
+  register int k, i;
+  Geometry *geometryLocal = &ctx->geometry;
+  Atmosphere *atmosLocal = &ctx->atmos;
+  Spectrum *spectrumLocal = &ctx->spectrum;
+
+  int    k_start, k_end, dk, Ndep = geometryLocal->Ndep;
+  double dtau_uw, dtau_dw, dS_uw, I_upw, dS_dw, c1, c2, w[3],
+         zmu, Bnu[2];
+  double dsup,dsdn,dt,dt2,dt3,ex,alpha,beta,alphaprim,betaprim,dsup2;
+  double dS_up,dS_c,dchi_up,dchi_c,dchi_dn,dsdn2,dtau_up2;
+  //double *z = geometryLocal->cmass;
+  // double *chi1 = scl_opac(Ndep, chi);
+  double *z, *chi1;
+  
+  if(FALSE){
+    chi1 = (double*)malloc(Ndep * sizeof(double));//scl_opac(Ndep, chi);
+    for(i=0;i<Ndep;i++) chi1[i] = chi[i] / atmosLocal->rho[i];
+    z = geometryLocal->cmass;//
+  }else{
+    chi1 = chi;
+    z = geometryLocal->height;
+  }
+  
+  zmu = 0.5 / geometryLocal->muz[mu];
+
+  /* --- Distinguish between rays going from BOTTOM to TOP
+         (to_obs == TRUE), and vice versa --      -------------- */
+
+  if (to_obs) {
+    dk      = -1;
+    k_start = Ndep-1;
+    k_end   = 0;
+  } else {
+    dk      = 1;
+    k_start = 0;
+    k_end   = Ndep-1;
+  }
+  dtau_uw = zmu * (chi1[k_start] + chi1[k_start+dk]) *
+    fabs(z[k_start] - z[k_start+dk]);
+  dS_uw = (S[k_start] - S[k_start+dk]) / dtau_uw;
+
+  /* --- Boundary conditions --                        -------------- */
+
+  if (to_obs) {
+    switch (geometryLocal->vboundary[BOTTOM]) {
+    case ZERO:
+      I_upw = 0.0;
+      break;
+    case THERMALIZED:
+      Planck(2, &atmosLocal->T[Ndep-2], spectrumLocal->lambda[nspect], Bnu);
+      I_upw = Bnu[1] - (Bnu[0] - Bnu[1]) / dtau_uw;
+      break;
+    case IRRADIATED:
+      I_upw = geometryLocal->Ibottom[nspect][mu];
+    }
+  } else {
+    switch (geometryLocal->vboundary[TOP]) {
+    case ZERO:
+      I_upw = 0.0;
+      break;
+    case THERMALIZED:
+      Planck(2, &atmosLocal->T[0], spectrumLocal->lambda[nspect], Bnu);
+      I_upw = Bnu[0] - (Bnu[1] - Bnu[0]) / dtau_uw;
+      break;
+    case IRRADIATED:
+      I_upw = geometryLocal->Itop[nspect][mu];
+    }
+  }
+  I[k_start] = I_upw;
+  if (Psi) Psi[k_start] = 0.0;
+  
+  /* set variables for first iteration to allow simple 
+     shift for all next iterations */
+  k=k_start+dk;
+  dsup = fabs(z[k] - z[k-dk]) / geometryLocal->muz[mu];
+  dsdn = fabs(z[k+dk] - z[k]) / geometryLocal->muz[mu];
+  dchi_up= (chi1[k] - chi1[k-dk])/dsup;
+  /*  dchi/ds at central point */
+  har_mean_deriv(&dchi_c,dsup,dsdn,chi1[k-dk],chi1[k],chi1[k+dk]);
+  /* upwind path_length */
+  dtau_uw = 0.5 * dsup * (chi1[k-dk]+chi1[k])  + 1./12. * dsup*dsup * (dchi_up - dchi_c );
+  /* dS/dtau at upwind point */
+  dS_up=(S[k]-S[k-dk])/dtau_uw;
+
+  /* --- Solve transfer along ray --                   -------------- */
+
+  for (k = k_start+dk;  k != k_end+dk;  k += dk) {
+    
+    if (k != k_end) {
+
+      /* downwind path length */
+       dsdn = fabs(z[k+dk] - z[k]   ) / geometryLocal->muz[mu];
+       
+      /* dchi/ds at downwind point */
+       if (fabs(k-k_end)>1) {
+	 dsdn2=fabs(z[k+2*dk] - z[k+dk])/geometryLocal->muz[mu];
+	 har_mean_deriv(&dchi_dn,dsdn,dsdn2,chi1[k],chi1[k+dk],chi1[k+2*dk]);       
+       } else {
+	 dchi_dn=(chi1[k+dk]-chi1[k])/dsdn;
+       }
+
+      /* downwind optical path length */
+       dtau_dw = 0.5 * dsdn * (chi1[k]+chi1[k+dk]) + 1./12.* dsdn * dsdn * (dchi_c  - dchi_dn) ;
+
+      dt=dtau_uw;
+      dt2=dt*dt;
+      dt3=dt2*dt; 
+
+      /* compute interpolation parameters */
+      if (dt > 0.05) {
+	ex=((dt<12.0)?exp(-dt):0.0);
+	alpha     =  ( 6.0*(dt-2.0)       + (-dt3+ 6.0*(dt+2.0))*ex  ) / dt3;
+	beta      =  ( (dt3-6.0*(dt-2.0)) - 6.0*(dt+2.0)*ex          ) / dt3;
+	alphaprim =  ( (2.0*dt-6.0)       + (dt2+4.0*dt+6.0)*ex      ) / dt2;
+	betaprim  =  ( (-dt2+4.0*dt-6.0)  + (2.0*dt+6.0)*ex          ) / dt2;
+      } else {
+	ex=1.0 - dt + 0.5*dt2 - 0.16666667*dt3;
+	alpha     =   (2.0/15.0)*dt3 - (7.0/20.0)*dt2 + dt/2.0;
+	beta      =   (1.0/30.0)*dt3 - (3.0/20.0)*dt2 + dt/2.0;
+	alphaprim = - (1.0/20.0)*dt3 + (1.0/12.0)*dt2;
+	betaprim  =   (1.0/30.0)*dt3 - (1.0/12.0)*dt2;
+      } 
+          
+      /* dS/dt at central point */
+      
+      har_mean_deriv(&dS_c,dtau_uw,dtau_dw,S[k-dk],S[k],S[k+dk]);
+      
+      //   fprintf(stderr,"[%3d] %e %e %e %e %e %e\n", k, ex, alpha, beta,alphaprim,betaprim, ex+alpha+beta+alphaprim+betaprim);
+
+      
+      I[k]= I_upw*ex + alpha*S[k-dk] + beta*S[k] + alphaprim*dS_up + betaprim*dS_c;
+    
+      if (Psi) Psi[k] = beta;
+	
+  } else { 
+	
+    /* --- Piecewise linear integration at end of ray -- ---------- */
+    
+      dtau_uw = zmu * (chi1[k] + chi1[k-dk]) *
+	fabs(z[k] - z[k-dk]);
+      dS_uw = (S[k] - S[k-dk]) / dtau_uw;
+      w3(dtau_uw, w);
+      I[k] = (1.0 - w[0])*I_upw + w[0]*S[k] + w[1]*dS_uw;
+      if (Psi) Psi[k] = w[0] - w[1] / dtau_uw;
+    }
+    I_upw = I[k];
+    
+    /* --- Re-use downwind quantities for next upwind position -- --- */
+    dsup=dsdn;
+    dchi_up=dchi_c;
+    dchi_c=dchi_dn;
+    dtau_uw=dtau_dw;
+    dS_up = dS_c;
+
+  }
+  if(chi1 != chi)
+    free(chi1);
+
+  //exit(0);
+  
+}
+
+
 /* ------- end -------------------- Piecewise_Hermite_1D.c ---------- */
 
 void Piecewise_lbrHermite_1D(int nspect, int mu, bool_t to_obs,

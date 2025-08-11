@@ -67,6 +67,32 @@ void readJlambda(int nspect, double *J)
 }
 /* ------- end ---------------------------- readJlambda.c ----------- */
 
+/* ------- begin -------------------------- readJlambda_ctx.c ----------- */
+
+void readJlambda_ctx(int nspect, double *J, RHContext *ctx)
+{
+  const char routineName[] = "readJlambda_ctx";
+  Atmosphere *atmosLocal = &ctx->atmos;
+  Spectrum *spectrumLocal = &ctx->spectrum;
+
+  bool_t result = TRUE;
+  size_t recordsize;
+  off_t  offset;
+
+  recordsize = atmosLocal->Nspace * sizeof(double);
+  offset     = recordsize * nspect;
+
+  result &= (pread(spectrumLocal->fd_J, J, recordsize, offset) == recordsize);
+
+  if (!result) {
+    sprintf(messageStr,
+	    "Error reading file: offset = %lld, recordsize = %zu",
+	    (long long) offset, recordsize);
+    Error(ERROR_LEVEL_2, routineName, messageStr);
+  }
+}
+/* ------- end ---------------------------- readJlambda_ctx.c ----------- */
+
 /* ------- begin -------------------------- writeJlambda.c ---------- */
 
 void writeJlambda(int nspect, double *J)
@@ -90,6 +116,32 @@ void writeJlambda(int nspect, double *J)
   }
 }
 /* ------- end ---------------------------- writeJlambda.c ---------- */
+
+/* ------- begin -------------------------- writeJlambda_ctx.c ---------- */
+
+void writeJlambda_ctx(int nspect, double *J, RHContext *ctx)
+{
+  const char routineName[] = "writeJlambda_ctx";
+  Atmosphere *atmosLocal = &ctx->atmos;
+  Spectrum *spectrumLocal = &ctx->spectrum;
+
+  bool_t result = TRUE;
+  size_t recordsize;
+  off_t  offset;
+
+  recordsize = atmosLocal->Nspace * sizeof(double);
+  offset     = recordsize * nspect;
+
+  result &= (pwrite(spectrumLocal->fd_J, J, recordsize, offset) == recordsize);
+
+  if (!result) {
+    sprintf(messageStr,
+	    "Error writing file: offset = %lld, recordsize = %zu",
+	    (long long) offset, recordsize);
+    Error(ERROR_LEVEL_2, routineName, messageStr);
+  }
+}
+/* ------- end ---------------------------- writeJlambda_ctx.c ---------- */
 
 /* ------- begin -------------------------- readJ20lambda.c --------- */
 
@@ -116,6 +168,33 @@ void readJ20lambda(int nspect, double *J20)
 }
 /* ------- end ---------------------------- readJ20lambda.c --------- */
 
+/* ------- begin -------------------------- readJ20lambda.c --------- */
+
+void readJ20lambda_ctx(int nspect, double *J20, RHContext *ctx)
+{
+  const char routineName[] = "readJ20lambda_ctx";
+
+  bool_t result = TRUE;
+  size_t recordsize;
+  off_t  offset;
+  Atmosphere *atmosLocal = &ctx->atmos;
+  Spectrum *spectrumLocal = &ctx->spectrum;
+
+  recordsize = atmosLocal->Nspace * sizeof(double);
+  offset     = recordsize * nspect;
+
+  result &= (pread(spectrumLocal->fd_J20, J20,
+		   recordsize, offset) == recordsize);
+
+  if (!result) {
+    sprintf(messageStr,
+	    "Error reading file: offset = %lld, recordsize = %zu",
+	    (long long) offset, recordsize);
+    Error(ERROR_LEVEL_2, routineName, messageStr);
+  }
+}
+/* ------- end ---------------------------- readJ20lambda_ctx.c --------- */
+
 /* ------- begin -------------------------- writeJ20lambda.c -------- */
 
 void writeJ20lambda(int nspect, double *J20)
@@ -140,6 +219,31 @@ void writeJ20lambda(int nspect, double *J20)
   }
 }
 /* ------- end ---------------------------- writeJ20lambda.c -------- */
+
+/* ------- begin -------------------------- writeJ20lambda_ctx.c -------- */
+void writeJ20lambda_ctx(int nspect, double *J20, RHContext *ctx)
+{
+  const char routineName[] = "writeJ20lambda_ctx";
+  Atmosphere *atmosLocal = &ctx->atmos;
+  Spectrum *spectrumLocal = &ctx->spectrum;
+  bool_t result = TRUE;
+  size_t recordsize;
+  off_t  offset;
+
+  recordsize = atmosLocal->Nspace * sizeof(double);
+  offset     = recordsize * nspect;
+
+  result &= (pwrite(spectrumLocal->fd_J20, J20,
+		    recordsize, offset) == recordsize);
+
+  if (!result) {
+    sprintf(messageStr,
+	    "Error writing file: offset = %lld, recordsize = %zu",
+	    (long long) offset, recordsize);
+    Error(ERROR_LEVEL_2, routineName, messageStr);
+  }
+}
+/* ------- end ---------------------------- writeJ20lambda_ctx.c -------- */
 
 /* ------- begin -------------------------- readImu.c --------------- */
 
@@ -170,6 +274,38 @@ void readImu(int nspect, int mu, bool_t to_obs, double *I)
 }
 /* ------- end ---------------------------- readImu.c --------------- */
 
+/* ------- begin -------------------------- readImu_ctx.c --------------- */
+
+void readImu_ctx(int nspect, int mu, bool_t to_obs, double *I, RHContext *ctx)
+{
+  const char routineName[] = "readImu_ctx";
+  Atmosphere *atmosLocal = &ctx->atmos;
+  Spectrum *spectrumLocal = &ctx->spectrum;
+  
+
+  bool_t result = TRUE;
+  int    index;
+  size_t recordsize;
+  off_t  offset;
+
+  recordsize = atmosLocal->Nspace * sizeof(double);
+
+  index  = spectrumLocal->PRDindex[nspect];
+  offset = 2*(index*atmosLocal->Nrays + mu) * recordsize;
+  if (to_obs)  offset += recordsize;
+
+  result &= (pread(spectrumLocal->fd_Imu, I, 
+		    recordsize, offset) == recordsize);
+
+ if (!result) {
+    sprintf(messageStr,
+	    "Error reading file: offset = %lld, recordsize = %zu",
+	    (long long) offset, recordsize);
+    Error(ERROR_LEVEL_2, routineName, messageStr);
+  }
+}
+/* ------- end ---------------------------- readImu_ctx.c --------------- */
+
 /* ------- begin -------------------------- writeImu.c -------------- */
 
 void writeImu(int nspect, int mu, bool_t to_obs, double *I)
@@ -198,6 +334,37 @@ void writeImu(int nspect, int mu, bool_t to_obs, double *I)
   }
 }
 /* ------- end ---------------------------- writeImu.c -------------- */
+
+/* ------- begin -------------------------- writeImu_ctx.c -------------- */
+
+void writeImu_ctx(int nspect, int mu, bool_t to_obs, double *I, RHContext *ctx)
+{
+  const char routineName[] = "writeImu_ctx";
+  Atmosphere *atmosLocal = &ctx->atmos;
+  Spectrum *spectrumLocal = &ctx->spectrum;
+
+  bool_t result = TRUE;
+  int    index;
+  size_t recordsize;
+  off_t  offset;
+
+  recordsize = atmosLocal->Nspace * sizeof(double);
+
+  index  = spectrumLocal->PRDindex[nspect];
+  offset = 2*(index*atmosLocal->Nrays + mu) * recordsize;
+  if (to_obs)  offset += recordsize;
+
+  result &= (pwrite(spectrumLocal->fd_Imu, I, 
+		    recordsize, offset) == recordsize);
+
+ if (!result) {
+    sprintf(messageStr,
+	    "Error writing file: offset = %lld, recordsize = %zu",
+	    (long long) offset, recordsize);
+    Error(ERROR_LEVEL_2, routineName, messageStr);
+  }
+}
+/* ------- end ---------------------------- writeImu_ctx.c -------------- */
 
 /* ------- begin -------------------------- readBackground.c -------- */
 
@@ -378,6 +545,45 @@ void readProfile(AtomicLine *line, int lamu, double *phi)
   if (!result) Error(ERROR_LEVEL_2, routineName, "Error reading file");
 }
 /* ------- end ---------------------------- readProfile.c ----------- */
+
+/* ------- begin -------------------------- readProfile_ctx.c ----------- */
+
+void readProfile_ctx(AtomicLine *line, int lamu, double *phi, RHContext *ctx)
+{
+  const char routineName[] = "readProfile_ctx";
+  Atmosphere *atmosLocal = &ctx->atmos;
+  InputData *inputLocal = &ctx->input;
+
+  int    Nrecphi, NrecSkip;
+  bool_t result = TRUE;
+  size_t recordsize;
+  off_t  offset;
+
+  if (line->polarizable && (inputLocal->StokesMode > FIELD_FREE)) {
+    if (inputLocal->magneto_optical)
+      NrecSkip = 7;
+    else
+      NrecSkip = 4;
+  } else
+    NrecSkip = 1;
+
+  if (line->polarizable && inputLocal->StokesMode == FULL_STOKES) {
+    if (inputLocal->magneto_optical)
+      Nrecphi = 7;
+    else
+      Nrecphi = 4;
+  } else
+    Nrecphi = 1;
+  
+  recordsize = Nrecphi * atmosLocal->Nspace * sizeof(double);
+  offset     = NrecSkip * atmosLocal->Nspace * sizeof(double) * lamu;
+
+  result &= (pread(line->fd_profile, phi, recordsize, offset) ==
+	     recordsize);
+
+  if (!result) Error(ERROR_LEVEL_2, routineName, "Error reading file");
+}
+/* ------- end ---------------------------- readProfile_ctx.c ----------- */
 
 /* ------- begin -------------------------- writeProfile.c ---------- */
 

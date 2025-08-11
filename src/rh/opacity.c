@@ -441,6 +441,398 @@ void Opacity(int nspect, int mu, bool_t to_obs, bool_t initialize)
 }
 /* ------- end ---------------------------- Opacity.c --------------- */
 
+/* ------- begin -------------------------- Opacity_ctx.c --------------- */
+
+void Opacity_ctx(int nspect, int mu, bool_t to_obs, bool_t initialize, RHContext *ctx)
+{
+  const char routineName[] = "Opacity_ctx";
+  register int k, n, nact;
+
+  // Globals reminder
+  // extern Atmosphere atmos;
+  // extern Spectrum spectrum;
+  // extern InputData input;
+  Atmosphere *atmosLocal = &ctx->atmos;
+  Spectrum *spectrumLocal = &ctx->spectrum;
+  InputData *inputLocal = &ctx->input;
+
+
+
+  int     la, i, j, vi, vj, lamu, nt, NrecStokes, Nrecphi;
+  double *phi, gijk, twohnu3_c2, twohc, hc_4PI, hc_k, hc, fourPI,
+    *n_i, *n_j, Bijxhc_4PI, wlambda, chi_l, *chi_Q, *chi_U, *chi_V,
+     eta_l, *eta_Q, *eta_U, *eta_V, *chip_Q, *chip_U, *chip_V,
+    *phi_Q, *phi_U, *phi_V, *psi_Q, *psi_U, *psi_V;
+  bool_t  solveStokes;
+  double lag, rho_int, *rho_tmp, sign;
+
+  
+  Atom *atom;
+  Molecule *molecule;
+  AtomicLine *line;
+  AtomicContinuum *continuum;
+  MolecularLine *mrt;
+  ActiveSet *as;
+
+  rho_tmp = (double *) calloc(spectrumLocal->Nspect, sizeof(double));
+
+  
+  /* --- Some useful constants --                          ---------- */
+ 
+  hc     = HPLANCK * CLIGHT;
+  fourPI = 4.0 * PI;
+  hc_4PI = hc / fourPI;
+  twohc  = 2.0*hc / CUBE(NM_TO_M);
+  hc_k   = hc / (KBOLTZMANN * NM_TO_M);
+ 
+  as = &spectrumLocal->as[nspect];
+  nt = nspect % inputLocal->Nthreads;
+
+  /* --- If polarized transition is present and we solve for polarized
+         radiation we need to fill all four Stokes components -- ---- */
+
+  if (inputLocal->StokesMode == FULL_STOKES && containsPolarized_ctx(as, ctx)) {
+    NrecStokes = 4;
+
+    chi_Q = as->chi + atmosLocal->Nspace;
+    chi_U = as->chi + 2*atmosLocal->Nspace;
+    chi_V = as->chi + 3*atmosLocal->Nspace;
+
+    if (inputLocal->magneto_optical) {
+      for (k = 0;  k < 3*atmosLocal->Nspace;  k++) as->chip[k] = 0.0;
+
+      chip_Q = as->chip;
+      chip_U = as->chip + atmosLocal->Nspace;
+      chip_V = as->chip + 2*atmosLocal->Nspace;
+    }
+  } else
+    NrecStokes = 1;
+
+  for (k = 0;  k < NrecStokes*atmosLocal->Nspace;  k++) {
+    as->chi[k] = 0.0;
+    as->eta[k] = 0.0;
+  }
+
+  /* --- Loop over set of active transitions at current wavelength -- */
+
+  for (nact = 0;  nact < atmosLocal->Nactiveatom;  nact++) {
+    atom = atmosLocal->activeatoms[nact];
+
+    /* --- Zero the emissivities for each active atom,
+           and the proper thread --                    -------------- */
+
+    if (as->Nactiveatomrt[nact] > 0) {
+      for (k = 0;  k < NrecStokes*atmosLocal->Nspace;  k++)
+	atom->rhth[nt].eta[k] = 0.0;
+    }
+
+    for (n = 0;  n < as->Nactiveatomrt[nact];  n++) {
+      switch (as->art[nact][n].type) {
+      case ATOMIC_LINE:
+	line = as->art[nact][n].ptype.line;
+	i = line->i;
+	j = line->j;
+	n_i = atom->n[i];
+	n_j = atom->n[j];
+
+ 	/* --- Relative position in line profile --    -------------- */
+
+	la = nspect - line->Nblue;
+
+        /* --- Need all four (or seven) Stokes components -- -------- */
+
+        solveStokes =
+	  (line->polarizable && inputLocal->StokesMode == FULL_STOKES);
+
+        /* --- Required size of temporary profile array -- ---------- */
+
+	if (inputLocal->limit_memory) {
+	  if (solveStokes)
+	    Nrecphi = (inputLocal->magneto_optical) ? 7 : 4;
+	  else
+	    Nrecphi = 1;
+
+	  phi = (double *) malloc(Nrecphi *
+				  atmosLocal->Nspace * sizeof(double));
+	}
+
+	if (atmosLocal->moving || solveStokes) {
+	  lamu = 2*(atmosLocal->Nrays*la + mu) + to_obs;
+
+	  if (inputLocal->limit_memory) {
+	    readProfile_ctx(line, lamu, phi, ctx);
+	    if (solveStokes) {
+	      phi_Q = phi + atmosLocal->Nspace;
+	      phi_U = phi + 2*atmosLocal->Nspace;
+	      phi_V = phi + 3*atmosLocal->Nspace;
+	      
+	      if (inputLocal->magneto_optical) {
+		psi_Q = phi + 4*atmosLocal->Nspace;
+		psi_U = phi + 5*atmosLocal->Nspace;
+		psi_V = phi + 6*atmosLocal->Nspace;
+	      }
+	    }
+	  } else {
+	    phi = line->phi[lamu];
+
+	    if (solveStokes) {
+	      phi_Q = line->phi_Q[lamu];
+	      phi_U = line->phi_U[lamu];
+	      phi_V = line->phi_V[lamu];
+
+	      if (inputLocal->magneto_optical) {
+		psi_Q = line->psi_Q[lamu];
+		psi_U = line->psi_U[lamu];
+		psi_V = line->psi_V[lamu];
+	      }
+	    }
+	  }
+	} else {
+	  if (inputLocal->limit_memory)
+	    readProfile_ctx(line, la, phi, ctx);
+	  else
+	    phi = line->phi[la];
+	}
+
+	twohnu3_c2 = line->Aji / line->Bji;
+	gijk = line->Bji / line->Bij;
+	Bijxhc_4PI = hc_4PI * line->Bij * line->isotope_frac;
+	for (k = 0;  k < atmosLocal->Nspace;  k++) {
+	  atom->rhth[nt].gij[n][k] = gijk;
+	  atom->rhth[nt].Vij[n][k] = Bijxhc_4PI * phi[k];
+	}
+
+	/* --- PRD correction to emission profile --   -------------- */
+
+	if (line->PRD) {
+	  switch (inputLocal->PRD_angle_dep) {
+	  case PRD_ANGLE_DEP:
+	    lamu = 2*(atmosLocal->Nrays*la + mu) + to_obs;
+	    for (k = 0;  k < atmosLocal->Nspace;  k++)
+	      atom->rhth[nt].gij[n][k] *= line->rho_prd[lamu][k] * inputLocal->prdswitch +
+					    (1 - inputLocal->prdswitch);
+	    break;
+
+	  case PRD_ANGLE_APPROX:
+	    
+	    if (inputLocal->prdh_limit_mem) {
+	      
+	      sign = (to_obs) ? 1.0 : -1.0;
+	      
+	      for (k = 0;  k < atmosLocal->Nspace;  k++) {
+		// wavelength in local rest frame frame
+		lag=line->lambda[la]* (1.+spectrumLocal->v_los[mu][k]*sign/CLIGHT);
+		//  prd factor at constant k, with wavelength contiguous in memory
+		for (lamu=0 ; lamu<line->Nlambda ; lamu++) 
+		  rho_tmp[lamu]=line->rho_prd[lamu][k] ;
+		// Interpolate to account for Doppler shift
+		Linear(line->Nlambda, line->lambda, &(rho_tmp[0]),
+		       1, &lag, &rho_int, TRUE);
+		atom->rhth[nt].gij[n][k] *= rho_int * inputLocal->prdswitch +
+					    (1 - inputLocal->prdswitch);
+	      }
+	      
+	    } else {
+	      
+	      for (k = 0;  k < atmosLocal->Nspace;  k++) {
+		
+		lamu = 2*(atmosLocal->Nrays*la + mu) + to_obs;
+		
+		rho_int=  (1.0-line->frac[lamu][k]) * line->rho_prd[ line->id0[lamu][k] ][k]
+		  +            line->frac[lamu][k]  * line->rho_prd[ line->id1[lamu][k] ][k];
+		
+		atom->rhth[nt].gij[n][k] *= rho_int * inputLocal->prdswitch +
+					    (1 - inputLocal->prdswitch);
+		
+	      }
+	      
+	    }  
+	    
+	    break;
+
+	  case PRD_ANGLE_INDEP:
+	    for (k = 0;  k < atmosLocal->Nspace;  k++) {
+	      atom->rhth[nt].gij[n][k] *= line->rho_prd[la][k] * inputLocal->prdswitch +
+					    (1 - inputLocal->prdswitch);
+	    }
+	    break;
+	  }
+	}
+	/* --- Store wavelength integration weights -- -------------- */
+
+	if (initialize) {
+	  wlambda = getwlambda_line(line, la); 
+	  for (k = 0;  k < atmosLocal->Nspace;  k++)
+	  atom->rhth[nt].wla[n][k] = wlambda * line->wphi[k] / hc_4PI;
+	}
+	break;
+
+      case ATOMIC_CONTINUUM:
+	continuum = as->art[nact][n].ptype.continuum;
+	la = nspect - continuum->Nblue;
+	i = continuum->i;
+	j = continuum->j;
+	n_i = atom->n[i];
+	n_j = atom->n[j];
+
+	twohnu3_c2 = twohc / CUBE(continuum->lambda[la]);
+
+	/* --- Do not update gij and Vij of bound-free transitions
+	       if set has already been initialized --  -------------- */
+
+	if (initialize) {
+	  wlambda = getwlambda_cont(continuum, la);
+	  for (k = 0;  k < atmosLocal->Nspace;  k++) {
+	    atom->rhth[nt].Vij[n][k] = continuum->alpha[la];
+	    atom->rhth[nt].gij[n][k] =
+	      atom->nstar[i][k] / atom->nstar[j][k] *
+	      exp(-hc_k / (continuum->lambda[la] * atmosLocal->T[k]));
+
+	    atom->rhth[nt].wla[n][k] =
+	      fourPI/HPLANCK * (wlambda/continuum->lambda[la]);
+	  }
+	}
+	break;
+
+      default:
+	sprintf(messageStr, "Invalid transition type");
+	Error(ERROR_LEVEL_1, routineName, messageStr);
+	twohnu3_c2 = 0.0;
+      }
+      /* --- Always calculate total opacity and emissivity of set - - */
+      
+      if (twohnu3_c2) {
+	for (k = 0;  k < atmosLocal->Nspace;  k++) {
+	  as->chi[k] += atom->rhth[nt].Vij[n][k] *
+	    (n_i[k] - atom->rhth[nt].gij[n][k]*n_j[k]);
+
+	  atom->rhth[nt].eta[k] += twohnu3_c2 * atom->rhth[nt].gij[n][k] *
+	    atom->rhth[nt].Vij[n][k] * n_j[k];
+	}
+	/* --- Emission coefficients for Stokes Q, U, V -- ---------- */
+
+	if (as->art[nact][n].type == ATOMIC_LINE  &&  solveStokes) {
+	  lamu = 2*(atmosLocal->Nrays*la + mu) + to_obs;
+
+	  eta_Q = atom->rhth[nt].eta + atmosLocal->Nspace;
+	  eta_U = atom->rhth[nt].eta + 2*atmosLocal->Nspace;
+	  eta_V = atom->rhth[nt].eta + 3*atmosLocal->Nspace;
+
+	  for (k = 0;  k < atmosLocal->Nspace;  k++) {
+	    chi_l =
+	      Bijxhc_4PI * (n_i[k] - atom->rhth[nt].gij[n][k]*n_j[k]);
+
+	    chi_Q[k] += chi_l * phi_Q[k];
+	    chi_U[k] += chi_l * phi_U[k];
+	    chi_V[k] += chi_l * phi_V[k];
+
+	    if (inputLocal->magneto_optical) {
+	      chip_Q[k] += chi_l * psi_Q[k];
+	      chip_U[k] += chi_l * psi_U[k];
+	      chip_V[k] += chi_l * psi_V[k];
+	    }
+	    eta_l =
+	      Bijxhc_4PI * twohnu3_c2 * atom->rhth[nt].gij[n][k] * n_j[k];
+
+	    eta_Q[k] += eta_l * phi_Q[k];
+	    eta_U[k] += eta_l * phi_U[k];
+	    eta_V[k] += eta_l * phi_V[k];
+	  }
+	}
+      }
+      if (as->art[nact][n].type == ATOMIC_LINE && inputLocal->limit_memory)
+	free(phi);
+    }
+  }
+
+  for (nact = 0;  nact < atmosLocal->Nactivemol;  nact++) {
+    molecule = atmosLocal->activemols[nact];
+
+    if (as->Nactivemolrt[nact] > 0) {
+      for (k = 0;  k < atmosLocal->Nspace;  k++)
+	molecule->rhth[nt].eta[k] = 0.0;
+    }
+
+    for (n = 0;  n < as->Nactivemolrt[nact];  n++) {
+      switch (as->mrt[nact][n].type) {
+      case VIBRATION_ROTATION:
+	mrt = as->mrt[nact][n].ptype.vrline;
+	vi = mrt->vi;
+	vj = mrt->vj;
+	n_i = molecule->nv[vi];
+	n_j = molecule->nv[vj];
+
+	la = nspect - mrt->Nblue;
+	if (atmosLocal->moving) {
+	  lamu = 2*(atmosLocal->Nrays*la + mu) + to_obs;
+	  phi  = mrt->phi[lamu];
+	} else
+	  phi = mrt->phi[la];
+
+	if (initialize) {
+	  wlambda = getwlambda_mrt(mrt, la);
+	  for (k = 0;  k < atmosLocal->Nspace;  k++)
+	    molecule->rhth[nt].wla[n][k] = wlambda * mrt->wphi[k] / hc_4PI;
+	}
+
+	twohnu3_c2 = mrt->Aji / mrt->Bji;
+	Bijxhc_4PI = hc_4PI * mrt->Bij * mrt->gi * mrt->isotope_frac;
+
+	for (k = 0;  k < atmosLocal->Nspace;  k++) {
+	  if (molecule->n[k]) {
+	    molecule->rhth[nt].Vij[n][k] =
+	      Bijxhc_4PI * phi[k] / molecule->pfv[vi][k] *
+	      exp(-mrt->Ei / (KBOLTZMANN * atmosLocal->T[k]));
+	    molecule->rhth[nt].gij[n][k] =
+	      molecule->nvstar[vi][k] / molecule->nvstar[vj][k] *
+	      exp(-hc_k / (mrt->lambda0 * atmosLocal->T[k]));
+	  }
+	}
+	break;
+
+      default:
+	sprintf(messageStr, "Invalid transition type");
+	Error(ERROR_LEVEL_1, routineName, messageStr);
+	twohnu3_c2 = 0.0;
+      }
+      /* --- Always calculate total opacity and emissivity of set - - */
+      
+      if (twohnu3_c2) {
+	for (k = 0;  k < atmosLocal->Nspace;  k++) {
+	  as->chi[k] += molecule->rhth[nt].Vij[n][k] *
+	    (n_i[k] - molecule->rhth[nt].gij[n][k]*n_j[k]);
+
+	  molecule->rhth[nt].eta[k] +=
+	    twohnu3_c2 * molecule->rhth[nt].gij[n][k] *
+	    molecule->rhth[nt].Vij[n][k] * n_j[k];
+	}
+      }
+    }
+  }
+
+  /* --- Add all the active contributions into the total
+         emissivities of this active set --            -------------- */
+
+  for (nact = 0;  nact < atmosLocal->Nactiveatom;  nact++) {
+    atom = atmosLocal->activeatoms[nact];
+    if (as->Nactiveatomrt[nact] > 0) {
+      for (k = 0;  k < NrecStokes*atmosLocal->Nspace;  k++)
+        as->eta[k] += atom->rhth[nt].eta[k];
+    }
+  }
+  for (nact = 0;  nact < atmosLocal->Nactivemol;  nact++) { 
+    molecule = atmosLocal->activemols[nact];
+    if (as->Nactivemolrt[nact] > 0) {
+      for (k = 0;  k < atmosLocal->Nspace;  k++)
+        as->eta[k] += molecule->rhth[nt].eta[k];
+    }
+  }
+  free(rho_tmp);
+
+}
+/* ------- end ---------------------------- Opacity_ctx.c --------------- */
+
+
 /* ------- begin -------------------------- alloc_as.c -------------- */
 
 void alloc_as(int nspect, bool_t crosscoupling)
@@ -544,6 +936,112 @@ void alloc_as(int nspect, bool_t crosscoupling)
 }
 /* ------- end ---------------------------- alloc_as.c -------------- */
 
+/* ------- begin -------------------------- alloc_as_ctx.c -------------- */
+
+void alloc_as_ctx(int nspect, bool_t crosscoupling, RHContext *ctx)
+{
+  register int n, m, nact;
+  Atmosphere *atmosLocal = &ctx->atmos;
+  InputData *inputLocal = &ctx->input;
+  Spectrum *spectrumLocal = &ctx->spectrum;
+
+  int i, j, NrecStokes, NrecStokes_as, Nactive, nt;
+  Atom *atom;
+  Molecule *molecule;
+  ActiveSet *as;
+
+  as = &spectrumLocal->as[nspect];
+  nt = nspect % inputLocal->Nthreads;
+
+  /* --- Allocate space for background opacities and emissivity -- -- */
+
+  if (atmosLocal->backgrflags[nspect].ispolarized &&
+      inputLocal->StokesMode == FULL_STOKES) {
+    NrecStokes = 4;
+
+    if (inputLocal->magneto_optical)
+      as->chip_c = (double *) malloc(3*atmosLocal->Nspace * sizeof(double));
+  } else
+    NrecStokes = 1;
+
+  as->chi_c = (double *) malloc(NrecStokes*atmosLocal->Nspace * sizeof(double));
+  as->eta_c = (double *) malloc(NrecStokes*atmosLocal->Nspace * sizeof(double));
+  as->sca_c = (double *) malloc(atmosLocal->Nspace * sizeof(double));
+
+  /* --- Now for the active part --                    -------------- */
+
+  if (inputLocal->StokesMode == FULL_STOKES  && containsPolarized_ctx(as, ctx)) {
+    NrecStokes_as = 4;
+
+    if (inputLocal->magneto_optical)
+      as->chip = (double *) malloc(3*atmosLocal->Nspace * sizeof(double));
+  } else
+    NrecStokes_as = 1;
+
+  as->chi = (double *) malloc(NrecStokes_as*atmosLocal->Nspace * sizeof(double));
+  as->eta = (double *) malloc(NrecStokes_as*atmosLocal->Nspace * sizeof(double));
+
+  /* --- Allocate memory for the emissivity in each active
+         atom seperately. The contributions are needed individually
+         in the approximate operator --                -------------- */
+
+  for (nact = 0;  nact < atmosLocal->Nactiveatom;  nact++) {
+    atom = atmosLocal->activeatoms[nact];
+
+    if (as->Nactiveatomrt[nact] > 0) {
+      atom->rhth[nt].eta =
+	(double *) malloc(NrecStokes_as * atmosLocal->Nspace * sizeof(double));
+
+      atom->rhth[nt].Vij =
+	matrix_double(as->Nactiveatomrt[nact], atmosLocal->Nspace);
+      atom->rhth[nt].gij =
+	matrix_double(as->Nactiveatomrt[nact], atmosLocal->Nspace);
+      atom->rhth[nt].wla =
+	matrix_double(as->Nactiveatomrt[nact], atmosLocal->Nspace);
+
+      /* --- Allocate pointer space for cross-coupling coefficients - */
+
+      if (crosscoupling) {
+	atom->rhth[nt].chi_down = 
+	  (double **) calloc(atom->Nlevel, sizeof(double *));
+	atom->rhth[nt].chi_up   =
+	  (double **) calloc(atom->Nlevel, sizeof(double *));
+	atom->rhth[nt].Uji_down =
+	  (double **) calloc(atom->Nlevel, sizeof(double *));
+
+	for (m = 0;  m < as->Nlower[nact];  m++) {
+	  i = as->lower_levels[nact][m];
+	  atom->rhth[nt].chi_up[i] =
+	    (double *) malloc(atmosLocal->Nspace * sizeof(double));
+	}
+	for (m = 0;  m < as->Nupper[nact];  m++) {
+	  j = as->upper_levels[nact][m];
+	  atom->rhth[nt].chi_down[j] =
+	    (double *) malloc(atmosLocal->Nspace * sizeof(double));
+	  atom->rhth[nt].Uji_down[j] =
+	    (double *) malloc(atmosLocal->Nspace * sizeof(double));
+	}
+      }
+    }
+  }
+  for (nact = 0;  nact < atmosLocal->Nactivemol;  nact++) {
+    molecule = atmosLocal->activemols[nact];
+
+    if (as->Nactivemolrt[nact] > 0) {
+      molecule->rhth[nt].eta =
+	(double *) malloc(atmosLocal->Nspace * sizeof(double));
+
+      molecule->rhth[nt].Vij = 
+	matrix_double(as->Nactivemolrt[nact], atmosLocal->Nspace);
+      molecule->rhth[nt].gij =
+	matrix_double(as->Nactivemolrt[nact], atmosLocal->Nspace);
+      molecule->rhth[nt].wla =
+	matrix_double(as->Nactivemolrt[nact], atmosLocal->Nspace);
+    }
+  }
+}
+/* ------- end ---------------------------- alloc_as_ctx.c -------------- */
+
 /* ------- begin -------------------------- free_as.c --------------- */
 
 void free_as(int nspect, bool_t crosscoupling)
@@ -636,6 +1134,28 @@ bool_t containsPolarized(ActiveSet *as)
 }
 /* ------- end ---------------------------- containsPolarized.c ----- */
 
+/* ------- begin -------------------------- containsPolarized_ctx.c ----- */
+
+bool_t containsPolarized_ctx(ActiveSet *as, RHContext *ctx)
+{
+  register int n, nact;
+  Atmosphere *atmosLocal = &ctx->atmos;
+  InputData *inputLocal = &ctx->input;
+
+  if (!atmosLocal->Stokes || inputLocal->StokesMode == FIELD_FREE) return FALSE;
+
+  for (nact = 0;  nact < atmosLocal->Nactiveatom;  nact++) {
+    for (n = 0;  n < as->Nactiveatomrt[nact];  n++) {
+      if (as->art[nact][n].type == ATOMIC_LINE &&
+	  as->art[nact][n].ptype.line->polarizable) {
+	return TRUE;
+      }
+    }
+  }
+  return FALSE;
+}
+/* ------- end ---------------------------- containsPolarized_ctx.c ----- */
+
 /* ------- begin -------------------------- containsBoundBound.c ---- */
 
 bool_t containsBoundBound(ActiveSet *as)
@@ -660,6 +1180,31 @@ bool_t containsBoundBound(ActiveSet *as)
 }
 /* ------- end ---------------------------- containsBoundBound.c ---- */
 
+/* ------- begin -------------------------- containsBoundBound_ctx.c ---- */
+
+bool_t containsBoundBound_ctx(ActiveSet *as, RHContext *ctx)
+{
+  register int n, nact;
+  Atmosphere *atmosLocal = &ctx->atmos;
+
+  for (nact = 0;  nact < atmosLocal->Nactiveatom;  nact++) {
+    for (n = 0;  n < as->Nactiveatomrt[nact];  n++) {
+      if (as->art[nact][n].type == ATOMIC_LINE) {
+	return TRUE;
+      }
+    }
+  }
+  for (nact = 0;  nact < atmosLocal->Nactivemol;  nact++) {
+    for (n = 0;  n < as->Nactivemolrt[nact];  n++) {
+      if (as->mrt[nact][n].type == VIBRATION_ROTATION) {
+	return TRUE;
+      }
+    }
+  }
+  return FALSE;
+}
+/* ------- end ---------------------------- containsBoundBound_ctx.c ---- */
+
 /* ------- begin -------------------------- containsActive.c -------- */
 
 bool_t containsActive(ActiveSet *as)
@@ -679,6 +1224,28 @@ bool_t containsActive(ActiveSet *as)
   return FALSE;
 }
 /* ------- end ---------------------------- containsActive.c -------- */
+
+/* ------- begin -------------------------- containsActive_ctx.c -------- */
+
+bool_t containsActive_ctx(ActiveSet *as, RHContext *ctx)
+{
+  register int n, nact;
+  Atmosphere *atmosLocal = &ctx->atmos;
+
+  for (nact = 0;  nact < atmosLocal->Nactiveatom;  nact++) {
+    if (as->Nactiveatomrt[nact] > 0)
+	return TRUE;
+  }
+
+  for (nact = 0;  nact < atmosLocal->Nactivemol;  nact++) {
+    if (as->Nactivemolrt[nact] > 0)
+	return TRUE;
+  }
+
+  return FALSE;
+}
+/* ------- end ---------------------------- containsActive_ctx.c -------- */
+
 
 /* ------- begin -------------------------- containsPRDline.c ------- */
 

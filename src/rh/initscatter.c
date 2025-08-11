@@ -6,7 +6,8 @@
 
        --------------------------                      ----------RH-- */
 
-#include "rh.h"
+// #include "rh.h"
+#include "rhf1d.h"
 #include "atom.h"
 #include "atmos.h"
 #include "spectrum.h"
@@ -84,3 +85,66 @@ void initScatter()
   getCPU(2, TIME_POLL, "Initial solution");
 }
 /* ------- end ---------------------------- initScatter.c ----------- */
+
+
+/* ------- begin -------------------------- initScatter.c ----------- */
+
+void initScatter_ctx(RHContext *ctx)
+{
+  const char routineName[] = "initScatter_ctx";
+  register int n, kr, niter;
+
+  Atmosphere *atmosLocal = &ctx->atmos;
+  InputData *inputLocal = &ctx->input;
+  Spectrum *spectrumLocal = &ctx->spectrum;
+
+  double dJmax;
+  Atom *atom;
+  AtomicLine *line;
+
+  /* --- Fill the radiative rates from previous solution if 
+         PRD lines are present --                      -------------- */
+
+  if (atmosLocal->NPRDactive > 0  && inputLocal->startJ == OLD_J) {
+    for (n = 0;  n < atmosLocal->Natom;  n++) {
+      atom = &atmosLocal->atoms[n];
+      if (atom->active) {
+	readRadRate_ctx(atom, ctx);
+	for (kr = 0;  kr < atom->Nline;  kr++) {
+	  line = atom->line + kr;
+	  if (line->PRD) {
+	    switch (inputLocal->PRD_angle_dep) {
+	    case PRD_ANGLE_INDEP:
+	      PRDScatter_ctx(line, LINEAR, ctx);
+	      break;
+	    case PRD_ANGLE_APPROX:
+	      PRDAngleApproxScatter_ctx(line, LINEAR, ctx);
+	      break;
+	    case PRD_ANGLE_DEP:
+	      PRDAngleScatter_ctx(line, LINEAR, ctx);
+	      break;
+	    }
+	  }
+	}
+      }
+    }
+  }
+  /* --- Iterate the scattering in the background. Only iterate
+         when we are also planning to do main iterations -- --------- */
+
+  if (spectrumLocal->updateJ) {
+    sprintf(messageStr,
+	    " %s: Lambda iterating background scattering...\n\n",
+	    routineName);
+    Error(MESSAGE, routineName, messageStr);
+
+    niter = 0;
+    while (inputLocal->NmaxIter  &&  niter < inputLocal->NmaxScatter) {
+      dJmax = solveSpectrum_ctx(FALSE, FALSE, 0, TRUE, ctx);
+      if (dJmax < inputLocal->iterLimit) break;
+      niter++;
+    }
+  }
+  getCPU(2, TIME_POLL, "Initial solution");
+}
+/* ------- end ---------------------------- initScatter_ctx.c ----------- */

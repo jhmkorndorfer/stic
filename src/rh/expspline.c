@@ -86,6 +86,7 @@ void exp_splineCoef(int N, double *x, double *y, double tension)
 
   Ntable = N;
   xtable = x;  ytable = y;
+  //POSSIBLE BUGS HERE!! Race condition
 }
 /* ------- end ---------------------------- exp_splineCoef.c -------- */
 

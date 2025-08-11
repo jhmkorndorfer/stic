@@ -305,6 +305,51 @@ int readBackground_j(int la, int mu, bool_t to_obs){
     
 }
 
+int readBackground_j_ctx(int la, int mu, bool_t to_obs, RHContext *ctx)
+{
+
+  // globals reminder
+    // extern Atmosphere atmos;
+    // extern Spectrum spectrum;
+    // extern InputData input;
+    // extern char messageStr[];
+    // extern BackgroundData bgdat;
+    // extern rhinfo io;
+    // extern rhbgmem *bmem;
+    // extern MPI_t mpi;
+  Atmosphere *atmosLocal = &ctx->atmos;
+  InputData *inputLocal = &ctx->input;
+  Spectrum *spectrumLocal = &ctx->spectrum;
+  rhbgmem *bmemLocal = ctx->bmem;
+
+  const char routineName[] = "readBackground_j_ctx";
+  long recnum, reclen;
+  int nstokes = 1;
+  ActiveSet *as = &spectrumLocal->as[la];
+
+
+  reclen = atmosLocal->Nspace*sizeof(double);
+  recnum = 2*mu + to_obs;
+  
+  if(atmosLocal->backgrflags[la].ispolarized && inputLocal->StokesMode == FULL_STOKES) nstokes = 4;
+
+  /* --- Copy data to allocated arrays --- */
+  
+  // memcpy(as->chi_c, &bmem[la].chi_b[recnum][0], nstokes*reclen);
+  // memcpy(as->eta_c, &bmem[la].eta_b[recnum][0], nstokes*reclen);
+  // memcpy(as->sca_c, &bmem[la].sca_b[recnum][0], reclen);
+  memcpy(as->chi_c, bmemLocal[la].chi_b[recnum], nstokes * reclen);
+  memcpy(as->eta_c, bmemLocal[la].eta_b[recnum], nstokes * reclen);
+  memcpy(as->sca_c, bmemLocal[la].sca_b[recnum], reclen);
+  
+  if (atmosLocal->backgrflags[la].ispolarized &&
+      inputLocal->magneto_optical && as->chip_c != NULL &&
+      inputLocal->StokesMode == FULL_STOKES){
+    memcpy(as->chip_c, bmemLocal[la].chip_b[recnum], 3 * reclen);
+  }
+    
+}
+
 
 void init_Background_j(){
    const char routineName[] = "init_Background";
