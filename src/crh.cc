@@ -409,7 +409,7 @@ ctx.commandline.quiet = (input.verbose == 0);
 
 void crh::cleanup(void){
   RHContext dummy = {};
-  clean_saved_populations(&dummy, &save_pop); 
+  clean_saved_populations(&save_pop); 
 }
 
 /* ----------------------------------------------------------------*/

@@ -48,7 +48,7 @@ extern Atmosphere atmos;
 extern InputData input;
 extern char messageStr[];
 extern MPI_t mpi;
-extern InputData input;
+// extern InputData input;
 
 
 inline double getKuruczpf2(Element *element, int stage, int k)
@@ -57,6 +57,17 @@ inline double getKuruczpf2(Element *element, int stage, int k)
   double Uk;
   Linear(atmos.Npf, atmos.Tpf, element->pf[stage], 
 	 1, &atmos.T[k], &Uk, hunt);
+
+  return Uk;
+}
+
+inline double getKuruczpf2_ctx(Element *element, int stage, int k, RHContext *ctx)
+{
+  bool_t hunt = TRUE;
+  double Uk;
+  Atmosphere *atmosLocal = &ctx->atmos;
+  Linear(atmosLocal->Npf, atmosLocal->Tpf, element->pf[stage], 
+	 1, &atmosLocal->T[k], &Uk, hunt);
 
   return Uk;
 }
@@ -91,6 +102,49 @@ void getfjk2(Element *element, double ne, int k, double *fjk, double *dfjk)
       
       fjk[j]  = fjk[j-1] * CT_ne *
 	exp(Ukp1 - Uk - element->ionpot[j-1]/(KBOLTZMANN*atmos.T[k]));
+      dfjk[j] = -j * fjk[j] / ne;
+      sum1   += fjk[j];
+      sum2   += dfjk[j];
+      Uk      = Ukp1;
+    }
+
+    for (j = 0;  j < element->Nstage;  j++) {
+      fjk[j]  /= sum1;
+      dfjk[j]  = (dfjk[j] - fjk[j] * sum2) / sum1;
+    }
+    
+}
+
+void getfjk2_ctx(Element *element, double ne, int k, double *fjk, double *dfjk, RHContext *ctx)
+{
+  register int i, j;
+
+  double  sum1, sum2, CT_ne, Uk, Ukp1;
+  Atom *atom;
+  Atmosphere *atmosLocal = &ctx->atmos;
+
+  /* --- Get the fractional population f_j(ne, T) = N_j/N for element
+         element and its partial derivative with ne. -- ------------- */
+
+
+
+    /* --- Else use estimate from LTE from Kurucz partition
+           functions --                                -------------- */
+
+    static const double C1 = (HPLANCK/(2.0*PI*M_ELECTRON)) * (HPLANCK/KBOLTZMANN);
+
+    CT_ne   = 2.0 * pow(C1/atmosLocal->T[k], -1.5) / ne;
+    sum1    = 1.0;
+    sum2    = 0.0;
+    fjk[0]  = 1.0;
+    dfjk[0] = 0.0;
+
+    Uk = getKuruczpf2_ctx(element, 0, k, ctx);
+    for (j = 1;  j < element->Nstage;  j++) {
+      Ukp1 = getKuruczpf2_ctx(element, j, k, ctx); 
+      
+      fjk[j]  = fjk[j-1] * CT_ne *
+	exp(Ukp1 - Uk - element->ionpot[j-1]/(KBOLTZMANN*atmosLocal->T[k]));
       dfjk[j] = -j * fjk[j] / ne;
       sum1   += fjk[j];
       sum2   += dfjk[j];
@@ -147,6 +201,33 @@ void extractGamma(Atom *atom, double **G, int k)
   
 }
 
+void extractGamma_ctx(Atom *atom, double **G, int k, RHContext *ctx)
+{
+  register int i, j, ij, kr;
+  int nlev = atom->Nlevel;
+  AtomicContinuum *cont;
+  Atmosphere *atmosLocal = &ctx->atmos;
+
+  
+  // --- Radiative contribution to gamma (preconditioned) --- //
+  
+  for (i = 0, ij = 0;  i < nlev;  i++) 
+    for (j = 0;  j < nlev;  j++, ij++)
+      G[i][j] = atom->Gamma[ij][k];
+  
+  
+  // --- divide by "ne" the downward rates from the continuum ---//
+  
+  for(kr=0; kr<atom->Ncont; ++kr){
+    cont = &atom->continuum[kr];
+    i = cont->i;
+    j = cont->j;
+
+    G[i][j] /= atmosLocal->ne[k];
+  }
+  
+}
+
 
 // -------------------------------------------------------------------//
 
@@ -184,6 +265,51 @@ void obtain_rates(double **w, double **c, int k, Atom *atom)
   // --Recompute collisional rates for one depth-point --- //
   
   CollisionRateOne(atom, &atom->txt[atom->offset_coll], k);
+
+
+  // --- read collisional rates --- //
+  
+  for (i = 0, ij = 0;  i < nlev;  i++) 
+    for (j = 0;  j < nlev;  j++, ij++)
+      c[i][j] = atom->C[ij][k];
+}
+
+void obtain_rates_ctx(double **w, double **c, int k, Atom *atom, RHContext *ctx)
+{
+  register int kr, i, j, ij;
+  int nlev = atom->Nlevel;
+  AtomicLine *line;
+  AtomicContinuum *cont;
+  FixedTransition *fixed;
+
+  Atmosphere *atmosLocal = &ctx->atmos;
+  
+  // --- Set to Zero ---//
+  
+  memset(c[0], 0, (nlev*nlev)*sizeof(double));
+
+  
+  // --- Now loop through nlines and ncont and get rates --- //
+  // --- In RH, in the rate matrix Gamma, the fast index (rightmost)
+  // --- stores the first index of the Einstein coeffs, to the
+  // --- notation is reversed: Gamma[i][j] -> Rji, Aji;
+  // --- The collisional terms are already in the correct order
+  
+  for(kr=0; kr<atom->Ncont; ++kr){
+    cont = &atom->continuum[kr];
+    i = cont->i;
+    j = cont->j;
+
+    
+    // --- Multiply the continuum downward transitions by
+    // ---- the current estimate of Ne
+
+    w[i][j] *= atmosLocal->ne[k];
+  }
+  
+  // --Recompute collisional rates for one depth-point --- //
+  
+  CollisionRateOne_ctx(atom, &atom->txt[atom->offset_coll], k, ctx);
 
 
   // --- read collisional rates --- //
@@ -263,6 +389,92 @@ void charge_eq(double **dFF, double *F, double *var, double **w,  double **c,
 
     for(j=1; j<atmos.elements[n].Nstage; ++j){
       akj = atmos.elements[n].abund * j * nHtot;
+      F[npar-1] -= akj*fjk[j] / var[npar-1];
+      
+      dFF[npar-1][npar-1] += akj*fjk[j]/SQ(var[npar-1]) - akj/var[npar-1]*dfjk[j];    
+    }
+    
+  }
+
+  free(fjk);
+  free(dfjk);
+    
+  
+  
+  // --- Derivatives of Ne --- //
+
+  for(ii=0; ii<anl; ++ii){
+    
+    if(ii == (anl-1)){
+
+      sum = sum1(anl, anl-1, w)/var[npar-1];
+      sum0= sum1(anl, anl-1, c)/var[npar-1];
+      
+      dFF[anl-1][npar-1] = var[anl-1]*(sum + 2.0*sum0);
+
+      for(jj=0;jj<anl; ++jj)
+	dFF[anl-1][npar-1] -= (var[jj]/var[npar-1])*c[anl-1][jj];
+      
+    }else{
+      // sum = 0.0; for(jj=0;jj<anl; ++jj) sum += c[jj][ii];
+      sum = sum1(anl, ii, c) / var[npar-1];
+      dFF[ii][npar-1] = var[ii]*sum;
+
+      for(jj=0; jj<anl1; ++jj)
+	dFF[ii][npar-1] -= var[jj]*(c[ii][jj]/var[npar-1]);
+
+      // --- recombination --- //
+
+      dFF[ii][npar-1] += (var[ii] / var[npar-1]) * (c[anl-1][ii]) -
+	(var[anl-1]/var[npar-1])*(w[ii][anl-1]+2.0*c[ii][anl-1]);      
+    } // else
+  } // ii
+
+  //  freeMatrix((void**)c);
+}
+
+void charge_eq_ctx(double **dFF, double *F, double *var, double **w,  double **c, Atom *atom, int k, RHContext *ctx)
+{
+
+  Atmosphere *atmosLocal = &ctx->atmos;
+
+  register int  n, j, i, ij, ii, jj;
+  int npar, anl, nn,  Nmaxstage = 0, anl1;
+
+  double  CT_ne, fsum, dfsum,Uk,Ukp1,error,derror,nHtot,akj;
+  Atom *H = &atmosLocal->atoms[0];
+
+  double *fjk = NULL, *dfjk = NULL,  PhiHmin, tg, sum, sum0;
+  static const double C1 = (HPLANCK/(2.0*PI*M_ELECTRON)) * (HPLANCK/KBOLTZMANN);
+  
+  nHtot = atmosLocal->H->ntotal[k];
+  tg    = atmosLocal->T[k];
+
+  npar = atom->Nlevel + 1;
+  anl  = atom->Nlevel, anl1 = anl-1;
+  
+  for(n=0; n < anl1; ++n) dFF[npar-1][n] = 0.0;
+  
+  dFF[npar-1][anl-1]  = -1.0/var[npar-1];
+  dFF[npar-1][npar-1] = var[anl-1]/SQ(var[npar-1]);
+
+  F[npar-1] = 1.0 - var[anl-1]/var[npar-1];
+
+  Nmaxstage = 0;
+  
+  for (n = 1;  n < atmosLocal->Nelem;  n++) 
+    Nmaxstage = MAX(atmosLocal->elements[n].Nstage, Nmaxstage);
+  
+  fjk  = (double *) calloc(Nmaxstage , sizeof(double));
+  dfjk = (double *) calloc(Nmaxstage , sizeof(double));
+
+  
+  for (n = 1;  n < atmosLocal->Nelem;  n++) {
+
+    getfjk2_ctx(&atmosLocal->elements[n], var[npar-1], k, fjk, dfjk, ctx);
+
+    for(j=1; j<atmosLocal->elements[n].Nstage; ++j){
+      akj = atmosLocal->elements[n].abund * j * nHtot;
       F[npar-1] -= akj*fjk[j] / var[npar-1];
       
       dFF[npar-1][npar-1] += akj*fjk[j]/SQ(var[npar-1]) - akj/var[npar-1]*dfjk[j];    
@@ -510,6 +722,188 @@ void statEquil_H(Atom *atom, int isum, int mali_iter)
   } // k
   
   //for(k=0;k<atmos.Nspace;k++){
+    //if(!converged[k]) fprintf(stderr,"statEquil_H: NR iterations not converged [%d]\n", k);
+    //}
+
+  freeMatrix((void **) Gamma_k);
+  freeMatrix((void **) dFF);
+  freeMatrix((void **) Gamma_total);
+  freeMatrix((void **) c);
+  freeMatrix((void **) Gamma_rad);
+
+  free(RHS);
+  free(npre);
+  free(var);
+  free(converged);
+  
+  
+  getCPU(3, TIME_POLL, "Stat Equil");
+}
+
+
+void statEquil_H_ctx(Atom *atom, int isum, int mali_iter, RHContext *ctx)
+{
+  static const double TOLX = 1.e-5;
+  static const double vdamp = 10.0;
+  static const double tiny_ne = 10.e6; // in M^{-3}, 10.in CGS.
+  static const double tmax_update = 300000.0; 
+  int max_iter;
+
+  Atmosphere *atmosLocal = &ctx->atmos;
+
+  
+  register int i, j, ij, k, kr, ii, jj;
+
+  int    i_eliminate, Nlevel, niter, npar, Nlevel2, nlte_positive;
+  double GamDiag, nmax_k, **Gamma_k, sum;
+  double  *var, **Gamma_total, e, *npre,nepre, vdamp_var, tg, gradient_zero;
+  double *RHS, **dFF, maxabs, tmp, max_error, **c, **Gamma_rad;
+  int rst_vdamp = 0, lte_positive = 1, first = 1, *converged = NULL;
+  
+  
+  getCPU(3, TIME_START, NULL);
+  
+  Nlevel = atom->Nlevel;
+  Nlevel2=Nlevel*Nlevel;
+  npar = Nlevel + 1;
+
+  // --- Init storage --- //
+  
+  converged = (int*) calloc(atmosLocal->Nspace,sizeof(int));
+  
+  Gamma_k = matrix_double(Nlevel, Nlevel);
+  Gamma_rad   = matrix_double(Nlevel, Nlevel);
+
+  Gamma_total = matrix_double(Nlevel, Nlevel);
+  c  = matrix_double(Nlevel, Nlevel);
+  npre = malloc(Nlevel*sizeof(double));
+  
+  var  = malloc(npar*sizeof(double));
+  RHS  = malloc(npar*sizeof(double));
+  dFF = matrix_double(npar, npar);
+
+
+  
+  for (k = 0;  k < atmosLocal->Nspace;  k++) {
+    
+    if(atmosLocal->T[k] > tmax_update){
+      converged[k] = 1;
+      continue;
+    }
+
+    extractGamma_ctx(atom, Gamma_rad, k, ctx);
+
+
+    niter = 0;
+    nepre = atmosLocal->ne[k], vdamp_var = vdamp,
+      tg = atmosLocal->T[k], gradient_zero = 1.0;
+    rst_vdamp = 0, lte_positive = 1, first = 1;
+    max_iter = 1000;
+    
+    for(j=0; j<atom->Nlevel; ++j)
+      npre[j] = atom->n[j][k];
+    
+    // --- Iterate --- //
+    
+    while(niter < max_iter){
+      memset(RHS, 0, npar*sizeof(double));
+      memset(&dFF[0][0], 0, npar*npar*sizeof(double));
+      memcpy(Gamma_k[0], Gamma_rad[0], Nlevel2*sizeof(double));
+      
+      
+      for(j=0; j<atom->Nlevel; ++j)
+	var[j] = atom->n[j][k];
+      
+      var[npar-1] = atmosLocal->ne[k];
+      
+      
+      // --- Get rates --- //
+
+      obtain_rates_ctx(Gamma_k, c,  k, atom, ctx);
+
+      
+      // --- add collisional rates to Gamma --- //
+
+      for(i=0;i<Nlevel;++i)
+	for(j=0;j<Nlevel;++j)
+	  Gamma_total[i][j] = Gamma_k[i][j] + c[i][j];
+      
+      
+      // --- Rate Eq. --- //
+      
+      rate_eq(dFF, RHS, var, Gamma_total, atom);
+
+
+      // --- Charge Eq. --- //
+
+      charge_eq_ctx(dFF, RHS, var, Gamma_k, c, atom, k, ctx);
+      
+      
+      // --- Particle conservation --- //
+
+      particle_cons(dFF, RHS, var, atom->ntotal[k], Nlevel);
+
+
+      // --- Newton-Raphson --- //
+
+      newtrap(dFF, RHS, var, Nlevel);
+      
+      
+      // --- update n_k and ne_k with relative correction --- //
+      
+      for(kr=0; kr<Nlevel; ++kr)
+	atom->n[kr][k] *= (1.0 + RHS[kr]/(1.0+vdamp_var*fabs(RHS[kr]))); 
+
+      atmosLocal->ne[k] *= (1.0 + RHS[npar-1]/(1.0+vdamp_var*fabs(RHS[npar-1])));
+
+
+      
+      // --- update parameters --- //
+            
+      nlte_positive = 1;
+      for(j=0; j<Nlevel; ++j){
+	if(atom->n[j][k]     < 0.0) nlte_positive = 0;
+      }
+    
+      
+      if((atmosLocal->ne[k] < tiny_ne) || !nlte_positive){
+	rst_vdamp = 1;
+      }
+      
+      if(rst_vdamp && vdamp_var < (vdamp+1.0)){
+	for(j=0; j<Nlevel; ++j)
+	  var[j] = npre[j];
+	var[npar-1] = nepre;
+	
+	vdamp_var = vdamp*3.0;
+	rst_vdamp = 0;
+	niter = 0;
+	max_iter = 3000;
+	lte_positive = 1;
+      }else if(rst_vdamp){
+	converged[k] = 0;
+	break;
+      }
+      
+      
+      maxabs = fabs(RHS[0]);
+      for(j=1; j<npar; ++j){
+	tmp = fabs(RHS[j]);
+	maxabs = ((tmp > maxabs) ? tmp : maxabs);
+      }
+      
+      if((maxabs < TOLX) && (!rst_vdamp)){
+	converged[k] = 1;
+	break;
+      }
+      
+      ++niter;
+    } // while
+
+
+  } // k
+  
+  //for(k=0;k<atmosLocal->Nspace;k++){
     //if(!converged[k]) fprintf(stderr,"statEquil_H: NR iterations not converged [%d]\n", k);
     //}
 

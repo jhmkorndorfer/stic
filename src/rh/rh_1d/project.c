@@ -90,6 +90,53 @@ void Bproject(void)
 }
 /* ------- end ---------------------------- Bproject.c -------------- */
 
+/* ------- begin -------------------------- Bproject_ctx.c -------------- */
+
+void Bproject_ctx(RHContext *ctx)
+{
+  /* --- Compute the cosine of gamma, the angle of B with the line of
+         sight, and the sine and cosine of 2*chi, the angle of B
+         with e1 --                                    -------------- */
+
+  register int k, mu;
+  Geometry *geometryLocal = &ctx->geometry;
+  Atmosphere *atmosLocal = &ctx->atmos;
+
+  double bx, by, bz, b1, b2, b3, csc_theta, sin_gamma;
+
+  atmosLocal->cos_gamma = matrix_double(atmosLocal->Nrays, atmosLocal->Nspace);
+  atmosLocal->cos_2chi  = matrix_double(atmosLocal->Nrays, atmosLocal->Nspace);
+  atmosLocal->sin_2chi  = matrix_double(atmosLocal->Nrays, atmosLocal->Nspace);
+
+  for (mu = 0;  mu < atmosLocal->Nrays;  mu++) {
+    if (geometryLocal->muz[mu] == 1.0) {
+      for (k = 0;  k < atmosLocal->Nspace;  k++) {
+	atmosLocal->cos_gamma[mu][k] = cos(atmosLocal->gamma_B[k]);
+	atmosLocal->cos_2chi[mu][k]  = cos(2.0 * atmosLocal->chi_B[k]);
+	atmosLocal->sin_2chi[mu][k]  = sin(2.0 * atmosLocal->chi_B[k]);
+      }
+    } else {
+      csc_theta = 1.0 / sqrt(1.0 - SQ(geometryLocal->muz[mu]));
+      for (k = 0;  k < atmosLocal->Nspace;  k++) {
+	sin_gamma = sin(atmosLocal->gamma_B[k]);
+	bx = sin_gamma * cos(atmosLocal->chi_B[k]);
+	by = sin_gamma * sin(atmosLocal->chi_B[k]);
+	bz = cos(atmosLocal->gamma_B[k]);
+	
+	b3 = geometryLocal->mux[mu]*bx + geometryLocal->muy[mu]*by +
+	  geometryLocal->muz[mu]*bz;
+	b1 = csc_theta * (bz - geometryLocal->muz[mu]*b3);
+	b2 = csc_theta * (geometryLocal->muy[mu]*bx - geometryLocal->mux[mu]*by);
+
+	atmosLocal->cos_gamma[mu][k] = b3;
+	atmosLocal->cos_2chi[mu][k]  = (SQ(b1) - SQ(b2)) / (1.0 - SQ(b3));
+	atmosLocal->sin_2chi[mu][k]  = 2.0 * b1*b2 / (1.0 - SQ(b3));
+      }
+    }
+  }
+}
+/* ------- end ---------------------------- Bproject_ctx.c -------------- */
+
 void Bproject_los(void)
 {
   /* --- Compute the cosine of gamma, the angle of B with the line of

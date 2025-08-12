@@ -410,7 +410,7 @@ void Profile(AtomicLine *line)
 
 
 
-/* ------- begin -------------------------- Profile.c --------------- */
+/* ------- begin -------------------------- Profile_ctx.c --------------- */
 
 void Profile_ctx(AtomicLine *line, RHContext *ctx)
 {

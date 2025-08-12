@@ -215,6 +215,178 @@ void Iterate_j(int NmaxIter, double iterLimit, double *dpopmax_out)
 }
 /* ------- end ---------------------------- Iterate.c --------------- */
 
+/* ------- begin -------------------------- Iterate_j_ctx.c --------------- */
+
+void Iterate_j_ctx(int NmaxIter, double iterLimit, double *dpopmax_out, RHContext *ctx)
+{
+  const char routineName[] = "Iterate_j_ctx";
+  register int niter, nact;
+  Atmosphere *atmosLocal = &ctx->atmos;
+  InputData *inputLocal = &ctx->input;
+
+  bool_t    eval_operator, write_analyze_output, equilibria_only, old_ne_flag = FALSE;
+  int       Ngorder, nsum = 0;
+  double    dpopsmax, PRDiterlimit, cswitch;
+  Atom     *atom;
+  Molecule *molecule;
+
+  if (NmaxIter <= 0) return;
+  getCPU(1, TIME_START, NULL);
+  
+  /* --- Initialize structures for Ng acceleration of population
+         convergence --                                  ------------ */
+
+  for (nact = 0;  nact < atmosLocal->Nactiveatom;  nact++) {
+    atom = atmosLocal->activeatoms[nact];
+    atom->Ng_n = NgInit(atom->Nlevel*atmosLocal->Nspace, inputLocal->Ngdelay,
+			inputLocal->Ngorder, inputLocal->Ngperiod, atom->n[0]);
+  }
+  for (nact = 0;  nact < atmosLocal->Nactivemol;  nact++) {
+    molecule = atmosLocal->activemols[nact];
+    //Ngorder  = (inputLocal->accelerate_mols) ? inputLocal->Ngorder : 0;
+
+    molecule->Ng_nv = NgInit(molecule->Nv*atmosLocal->Nspace, inputLocal->Ngdelay,
+			     inputLocal->Ngorder, inputLocal->Ngperiod, molecule->nv[0]);
+  }
+  
+  if(inputLocal->solve_ne >= ITERATION_EOS)
+    atmosLocal->ng_ne = NgInit(atmosLocal->Nspace, inputLocal->Ngdelay, inputLocal->Ngorder,inputLocal->Ngperiod, atmosLocal->ne );
+
+  
+  /* --- Start of the main iteration loop --             ------------ */
+
+  niter = 1;
+
+ /* Collisional-radiative switching ? */
+  if (inputLocal->crsw != 0.0)
+    cswitch = inputLocal->crsw_ini;
+  else
+    cswitch = 1.0;
+    
+  /* PRD switching ? */
+  if (inputLocal->prdsw > 0.0)
+    inputLocal->prdswitch = 0.0;
+  else
+    inputLocal->prdswitch = 1.0;
+
+  
+  while ((niter <= NmaxIter || niter < 3)) {
+    getCPU(2, TIME_START, NULL);
+    mpi.iter = niter;
+    
+    for (nact = 0;  nact < atmosLocal->Nactiveatom;  nact++)
+      initGammaAtom_ctx(atmosLocal->activeatoms[nact], cswitch, ctx);
+    for (nact = 0;  nact < atmosLocal->Nactivemol;  nact++)
+      initGammaMolecule_ctx(atmosLocal->activemols[nact], ctx);
+
+    /* --- Formal solution for all wavelengths --      -------------- */
+
+    solveSpectrum_ctx(eval_operator=TRUE, FALSE, niter, FALSE, ctx);
+
+    /* --- Solve statistical equilibrium equations --  -------------- */
+    
+    if(((niter+1) == inputLocal->Ngdelay) && (dpopsmax > inputLocal->ng_start_limit)){
+      nsum = 1;
+      if(inputLocal->solve_ne >= ITERATION_EOS && atmosLocal->ne_flag) nsum = 4;
+      
+      for(nact = 0;  nact < atmosLocal->Nactiveatom;  nact++){
+	atmosLocal->activeatoms[nact]->Ng_n->Ndelay += nsum;	
+      }
+      if(inputLocal->solve_ne >= ITERATION_EOS) atmosLocal->ng_ne->Ndelay += nsum;
+      inputLocal->Ngdelay+=nsum;
+    }
+    
+    sprintf(messageStr, "\n -- Iteration %3d\n", niter);
+    Error(MESSAGE, routineName, messageStr);
+    dpopsmax = updatePopulations_ctx(niter, ctx);
+    if (mpi.stop) return;
+
+    
+    old_ne_flag = atmosLocal->ne_flag;
+    
+    if (atmosLocal->NPRDactive > 0) {
+      
+      /* --- Redistribute intensity in PRD lines if necessary -- ---- */
+
+      if (inputLocal->PRDiterLimit < 0.0)
+	PRDiterlimit = MAX(dpopsmax, -inputLocal->PRDiterLimit);
+      else
+	PRDiterlimit = inputLocal->PRDiterLimit;
+
+      Redistribute_j_ctx(inputLocal->PRD_NmaxIter, PRDiterlimit, dpopsmax*0.1, ctx);
+      if (mpi.stop) return;
+	  
+    }
+
+    sprintf(messageStr, "Total Iteration %3d", niter);
+    getCPU(2, TIME_POLL, messageStr);
+
+    if ((dpopsmax < iterLimit) && (cswitch <= 1.0) && (inputLocal->prdswitch >= 1.0)) {
+      
+      /* --- Make sure that in the last iteration the PRD is converged all the 
+	 wav for the response functions --- */
+      
+      if (atmosLocal->NPRDactive > 0) {
+	
+	/* --- Redistribute intensity in PRD lines if necessary -- ---- */
+	
+	if (inputLocal->PRDiterLimit < 0.0)
+	  PRDiterlimit = MAX(dpopsmax, -inputLocal->PRDiterLimit);
+	else
+	  PRDiterlimit = inputLocal->PRDiterLimit;
+       
+	Redistribute_j_ctx(inputLocal->PRD_NmaxIter*2+1, PRDiterlimit, dpopsmax, ctx);
+	if (mpi.stop) return;
+      }
+      break;
+    }
+    niter++;
+    
+
+    /* Update collisional radiative switching */
+    if (inputLocal->crsw > 0)
+      cswitch = MAX(1.0, cswitch * pow(0.1, 1./inputLocal->crsw));
+      
+    /* Update PRD switching */ 
+    if (inputLocal->prdsw > 0.0) 
+      inputLocal->prdswitch = MIN(1.0, inputLocal->prdsw * (double) (niter * niter) ); 
+
+    
+    if (atmosLocal->hydrostatic) {
+      if (!atmosLocal->atoms[0].active) {
+	sprintf(messageStr, "Can only perform hydrostatic equilibrium"
+                            " for hydrogen active");
+	Error(ERROR_LEVEL_2, routineName, messageStr);
+      }
+      
+      // if(atmosLocal->atoms[0].mxchange > 1.e-2)
+      Hydrostatic_ctx(N_MAX_HSE_ITER, HSE_ITER_LIMIT, ctx);
+    }
+  }
+  
+  *(dpopmax_out) = dpopsmax; 
+  
+  for (nact = 0;  nact < atmosLocal->Nactiveatom;  nact++) {
+    atom = atmosLocal->activeatoms[nact];
+    freeMatrix((void **) atom->Gamma);
+    atom->Gamma = NULL;
+    NgFree(atom->Ng_n);
+  } 
+  for (nact = 0;  nact < atmosLocal->Nactivemol;  nact++) {
+    molecule = atmosLocal->activemols[nact];
+    freeMatrix((void **) molecule->Gamma);
+    molecule->Gamma = NULL;
+    NgFree(molecule->Ng_nv);
+  }
+  if(inputLocal->solve_ne >= ITERATION_EOS){
+    NgFree(atmosLocal->ng_ne);
+    atmosLocal->ng_ne = NULL;
+  }
+  
+  getCPU(1, TIME_POLL, "Iteration Total");
+}
+/* ------- end ---------------------------- Iterate_j_ctx.c --------------- */
+
 /* ------- begin -------------------------- solveSpectrum.c --------- */
 
 double solveSpectrum(bool_t eval_operator, bool_t redistribute, int iter, bool_t synth_all)

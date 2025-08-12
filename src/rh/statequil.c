@@ -280,6 +280,86 @@ void statEquilMolecule(struct Molecule *molecule, int isum)
 }
 /* ------- end ---------------------------- statEquilMolecule.c ----- */
 
+/* ------- begin -------------------------- statEquilMolecule_ctx.c ----- */
+
+void statEquilMolecule_ctx(struct Molecule *molecule, int isum, RHContext *ctx)
+{
+  register int vi, vj, vij, k;
+  Atmosphere *atmosLocal = &ctx->atmos;
+
+  int    i_eliminate, Nlevel;
+  double GamDiag, nmax_k, *n_k, **Gamma_k;
+
+  getCPU(3, TIME_START, NULL);
+
+  Nlevel = molecule->Nv;
+
+  /* --- Need temporary storage because Gamma has to be solved spatial
+         point by spatial point while depth is normally the fastest
+         running index --                              -------------- */
+
+  n_k     = (double *) malloc(Nlevel * sizeof(double));
+  Gamma_k = matrix_double(Nlevel, Nlevel);
+
+  for (k = 0;  k < atmosLocal->Nspace;  k++) {
+    if (molecule->n[k] > 0.0) {
+      for (vi = 0, vij = 0;  vi < Nlevel;  vi++) {
+	n_k[vi] = molecule->nv[vi][k];
+	for (vj = 0;  vj < Nlevel;  vj++, vij++)
+	  Gamma_k[vi][vj] = molecule->Gamma[vij][k];
+      }
+
+      if (isum == -1) {
+	i_eliminate  = 0;
+	nmax_k = 0.0;
+	for (vi = 0;  vi < Nlevel;  vi++) {
+	  if (n_k[vi] > nmax_k) {
+	    nmax_k = n_k[vi];
+	    i_eliminate = vi;
+	  }
+	}
+      } else
+	i_eliminate = isum;
+
+      /* --- For each column i sum over rows to get diagonal elements */
+
+       for (vi = 0;  vi < Nlevel;  vi++) {
+	GamDiag = 0.0;
+	Gamma_k[vi][vi] = 0.0;
+	n_k[vi] = 0.0;
+
+	for (vj = 0;  vj < Nlevel;  vj++) GamDiag += Gamma_k[vj][vi];
+	Gamma_k[vi][vi] = -GamDiag;
+      }
+      /* --- Close homogeneous set with particle conservation ------- */
+
+      n_k[i_eliminate] = molecule->n[k];
+      for (vj = 0;  vj < Nlevel;  vj++) Gamma_k[i_eliminate][vj] = 1.0;
+
+      /* --- Solve for new population numbers at location k --------- */
+
+      SolveLinearEq(Nlevel, Gamma_k, n_k, TRUE);
+      //solveLinearCXX(Nlevel, Gamma_k, n_k);
+
+      if (mpi.stop) {
+	//solveLinearCXX(Nlevel, Gamma_k, n_k);
+
+	free(n_k);
+	freeMatrix((void **) Gamma_k);
+	return; /* Get out if there is a singular matrix */
+      }
+      for (vi = 0;  vi < Nlevel;  vi++) molecule->nv[vi][k] = n_k[vi];
+    } else
+      for (vi = 0;  vi < Nlevel;  vi++) molecule->nv[vi][k] = 0.0;
+  }
+
+  free(n_k);
+  freeMatrix((void **) Gamma_k);
+
+  getCPU(3, TIME_POLL, "Stat Equil");
+}
+/* ------- end ---------------------------- statEquilMolecule_ctx.c ----- */
+
 /* ------- begin -------------------------- updatePopulations.c ----- */
 
 double updatePopulations(int niter)
@@ -361,3 +441,88 @@ double updatePopulations(int niter)
   return dpopsmax;
 }
 /* ------- end ---------------------------- updatePopulations.c ----- */
+
+
+/* ------- begin -------------------------- updatePopulations_ctx.c ----- */
+
+double updatePopulations_ctx(int niter, RHContext *ctx)
+{
+  register int nact, ii;
+
+  bool_t accel, quiet, hydrogen = FALSE;
+  double dpops, dpopsmax = 0.0, dnemax = 0.0;
+  Atmosphere *atmosLocal = &ctx->atmos;
+  InputData *inputLocal = &ctx->input;
+  Atom *atom;
+  Molecule *molecule;
+
+  if(inputLocal->solve_ne >= ITERATION_EOS){
+    if(inputLocal->solve_ne == ITERATION || atmosLocal->ne_flag) hydrogen = TRUE;
+  }
+
+  
+  /* --- Update active atoms --                        -------------- */
+
+  for (nact = atmosLocal->Nactiveatom-1;  nact >= 0;  --nact) {
+    atom = atmosLocal->activeatoms[nact];
+    dnemax = 0.0;
+    
+    if(hydrogen && nact == 0){
+      atmosLocal->ne_flag = TRUE;
+      statEquil_H_ctx(atom, inputLocal->isum, niter, ctx);
+      //
+      accel = Accelerate(atmosLocal->ng_ne, atmosLocal->ne);
+      //
+      sprintf(messageStr, " Ne,");
+      dnemax = MaxChange(atmosLocal->ng_ne, messageStr, quiet=FALSE);
+      Error(MESSAGE, NULL, (accel) ? " (accelerated)\n" : "\n");
+      //
+
+      // --- Deallocate collisional rates, they will be re-allocated inside Background_h -> seLTE.
+      for(ii=0; ii< atmosLocal->Nactiveatom-1; ++ii){
+	        freeMatrix((void**)atmosLocal->activeatoms[ii]->C);
+	        atmosLocal->activeatoms[ii]->C = NULL;
+      }
+
+      Background_j_ctx(FALSE, FALSE, ctx); // The LTE populations are recomputed here and collisional rates.
+      getProfiles_ctx(ctx); // Stark damping must be updated, and profiles re-computed
+    }else{
+      if(nact==0) atmosLocal->ne_flag = FALSE;
+      statEquil_ctx(atom, inputLocal->isum, ctx);
+      if(mpi.stop) return 1.;
+    }
+    accel = Accelerate(atom->Ng_n, atom->n[0]);
+    if(mpi.stop) return 1.;
+    
+    sprintf(messageStr, " %s,", atom->ID);
+    dpops = MaxChange(atom->Ng_n, messageStr, quiet=FALSE);
+    Error(MESSAGE, NULL, (accel) ? " (accelerated)\n" : "\n");
+    
+    atom->mxchange = dpops;
+    if(atmosLocal->atoms[0].active && nact ==0 && dnemax < inputLocal->eos_iter_limit) atmosLocal->ne_flag = FALSE;
+
+
+    
+    dpopsmax = MAX(dpops, dpopsmax);
+  }
+  /* --- Update active molecules --                    -------------- */
+
+  for (nact = 0;  nact < atmosLocal->Nactivemol;  nact++) {
+    molecule = atmosLocal->activemols[nact];
+
+    statEquilMolecule_ctx(molecule, 0, ctx);
+    if(mpi.stop) return 1.;
+
+    accel = Accelerate(molecule->Ng_nv, molecule->nv[0]);
+    if(mpi.stop) return 1.;
+
+    sprintf(messageStr, " %s ,", molecule->ID);
+    dpops = MaxChange(molecule->Ng_nv, messageStr, quiet=FALSE);
+    Error(MESSAGE, NULL, (accel) ? " (accelerated)\n" : "\n");
+
+    dpopsmax = MAX(dpops, dpopsmax);
+  }
+
+  return dpopsmax;
+}
+/* ------- end ---------------------------- updatePopulations_ctx.c ----- */

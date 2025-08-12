@@ -449,7 +449,7 @@ double Formal_ctx(int nspect, bool_t eval_operator, bool_t redistribute, int ite
 
   
   /* --- Retrieve active set as of transitions at wavelength nspect - */
-
+  
   as = &spectrumLocal->as[nspect];
   alloc_as_ctx(nspect, eval_operator, ctx);
 
@@ -782,7 +782,7 @@ double Formal_ctx(int nspect, bool_t eval_operator, bool_t redistribute, int ite
   }
   /* --- Clean up --                                 ---------------- */
 
-  free_as(nspect, eval_operator);
+  free_as_ctx(nspect, eval_operator, ctx);
   if (eval_operator) free(Psi);
 
   free(chi); 

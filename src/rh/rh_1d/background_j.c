@@ -317,6 +317,8 @@ int readBackground_j_ctx(int la, int mu, bool_t to_obs, RHContext *ctx)
     // extern rhinfo io;
     // extern rhbgmem *bmem;
     // extern MPI_t mpi;
+
+  
   Atmosphere *atmosLocal = &ctx->atmos;
   InputData *inputLocal = &ctx->input;
   Spectrum *spectrumLocal = &ctx->spectrum;
@@ -330,23 +332,41 @@ int readBackground_j_ctx(int la, int mu, bool_t to_obs, RHContext *ctx)
 
   reclen = atmosLocal->Nspace*sizeof(double);
   recnum = 2*mu + to_obs;
+
+
+  
   
   if(atmosLocal->backgrflags[la].ispolarized && inputLocal->StokesMode == FULL_STOKES) nstokes = 4;
-
+ 
   /* --- Copy data to allocated arrays --- */
   
-  // memcpy(as->chi_c, &bmem[la].chi_b[recnum][0], nstokes*reclen);
-  // memcpy(as->eta_c, &bmem[la].eta_b[recnum][0], nstokes*reclen);
-  // memcpy(as->sca_c, &bmem[la].sca_b[recnum][0], reclen);
-  memcpy(as->chi_c, bmemLocal[la].chi_b[recnum], nstokes * reclen);
-  memcpy(as->eta_c, bmemLocal[la].eta_b[recnum], nstokes * reclen);
-  memcpy(as->sca_c, bmemLocal[la].sca_b[recnum], reclen);
+ memcpy(as->chi_c,
+       (void*)bmemLocal[la].chi_b[recnum],
+       (size_t)nstokes * (size_t)atmosLocal->Nspace * sizeof(double));
+
+memcpy(as->eta_c,
+       (void*)bmemLocal[la].eta_b[recnum],
+       (size_t)nstokes * (size_t)atmosLocal->Nspace * sizeof(double));
+
+memcpy(as->sca_c,
+       (void*)bmemLocal[la].sca_b[recnum],
+       (size_t)atmosLocal->Nspace * sizeof(double));
+
+  // memcpy(as->chi_c, bmemLocal[la].chi_b[recnum], nstokes * reclen);
+  // memcpy(as->eta_c, bmemLocal[la].eta_b[recnum], nstokes * reclen);
+  // memcpy(as->sca_c, bmemLocal[la].sca_b[recnum], reclen);
+
   
   if (atmosLocal->backgrflags[la].ispolarized &&
       inputLocal->magneto_optical && as->chip_c != NULL &&
       inputLocal->StokesMode == FULL_STOKES){
-    memcpy(as->chip_c, bmemLocal[la].chip_b[recnum], 3 * reclen);
+    
+    memcpy(&as->chip_c[0], &bmemLocal[la].chip_b[recnum][0], reclen*3);
+   
+    // memcpy(&as->chip_c[0], &bmem[la].chip_b[recnum][0], reclen*3);
   }
+
+  
     
 }
 
@@ -521,16 +541,16 @@ void init_Background_j_ctx(RHContext *ctx){
 
   
   /* --- Init to null arrays to store data --- */
-  bmemLocal = (rhbgmem*) malloc(spectrumLocal->Nspect * sizeof(rhbgmem));
-  memset(bmemLocal, 0, spectrumLocal->Nspect * sizeof(rhbgmem));
+  ctx->bmem = (rhbgmem*) malloc(spectrumLocal->Nspect * sizeof(rhbgmem));
+  memset(ctx->bmem, 0, spectrumLocal->Nspect * sizeof(rhbgmem));
 
-  for (nspect = 0;  nspect < spectrumLocal->Nspect;  nspect++) bmemLocal[nspect].allocated = false;
+  for (nspect = 0;  nspect < spectrumLocal->Nspect;  nspect++) ctx->bmem[nspect].allocated = false;
 
 
   return;
   
 }
-
+ 
 
 void Background_j(bool_t write_analyze_output, bool_t equilibria_only)
 {
@@ -1156,7 +1176,6 @@ void Background_j_ctx(bool_t write_analyze_output, bool_t equilibria_only, RHCon
     /* --- The Planck function at this wavelength --   -------------- */
 
     Planck(atmosLocal->Nspace, atmosLocal->T, wavelength, Bnu);
-    printf("Background_j_ctx 1114!!!!\n");
 
     /* --- Initialize the flags for this wavelength -- -------------- */
 
@@ -1170,7 +1189,6 @@ void Background_j_ctx(bool_t write_analyze_output, bool_t equilibria_only, RHCon
       eta_ai[k] = 0.0;
       sca_ai[k] = thomson[k];
     }
-    printf("Background_j_ctx 1128!!!!\n");
     /* --- Negative hydrogen ion, bound-free and free-free -- ------- */
 
     if (Hminus_bf_ctx(wavelength, chi, eta, ctx)) {
@@ -1180,7 +1198,6 @@ void Background_j_ctx(bool_t write_analyze_output, bool_t equilibria_only, RHCon
       }
     }
 
-    printf("Background_j_ctx 1138!!!!\n");
 
     if (Hminus_ff_ctx(wavelength, chi, ctx)) {
       for (k = 0;  k < atmosLocal->Nspace;  k++) {
@@ -1189,7 +1206,6 @@ void Background_j_ctx(bool_t write_analyze_output, bool_t equilibria_only, RHCon
       }
     }
     
-    printf("Background_j_ctx 1147!!!!\n");
     /* --- Opacity fudge factors, applied to Hminus opacity -- ------ */
 
     if (do_fudge) {
@@ -1201,7 +1217,6 @@ void Background_j_ctx(bool_t write_analyze_output, bool_t equilibria_only, RHCon
       }
     }
 
-    printf("Background_j_ctx 1159!!!!\n");
     /* --- Opacities from bound-free transitions in OH and CH -- ---- */
 
     if (OH_bf_opac_ctx(wavelength, chi, eta, ctx)) {
@@ -1211,7 +1226,6 @@ void Background_j_ctx(bool_t write_analyze_output, bool_t equilibria_only, RHCon
       }
     }
 
-    printf("Background_j_ctx 1169!!!!\n");
 
     if (CH_bf_opac_ctx(wavelength, chi, eta, ctx)) {
       for (k = 0;  k < atmosLocal->Nspace;  k++) {
@@ -1220,7 +1234,6 @@ void Background_j_ctx(bool_t write_analyze_output, bool_t equilibria_only, RHCon
       }
     }
 
-    printf("Background_j_ctx 1178!!!!\n");
     /* --- Neutral Hydrogen Bound-Free and Free-Free --  ------------ */
 
     if (Hydrogen_bf_ctx(wavelength, chi, eta, ctx)) {
@@ -1230,7 +1243,6 @@ void Background_j_ctx(bool_t write_analyze_output, bool_t equilibria_only, RHCon
       }
     }
 
-    printf("Background_j_ctx 1188!!!!\n");
 
     Hydrogen_ff_ctx(wavelength, chi, ctx);
     for (k = 0;  k < atmosLocal->Nspace;  k++) {
@@ -1238,7 +1250,6 @@ void Background_j_ctx(bool_t write_analyze_output, bool_t equilibria_only, RHCon
       eta_ai[k] += chi[k] * Bnu[k];
     }
 
-    printf("Background_j_ctx 1196!!!!\n");
     /* --- Rayleigh scattering by neutral hydrogen --  -------------- */
 
     if (Rayleigh_ctx(wavelength, atmosLocal->H, scatt, ctx)) {
@@ -1247,7 +1258,6 @@ void Background_j_ctx(bool_t write_analyze_output, bool_t equilibria_only, RHCon
       }
     }
 
-    printf("Background_j_ctx 1205!!!!\n");
     /* --- Rayleigh scattering by neutral helium --    -------------- */
 
     if (He && Rayleigh_ctx(wavelength, He, scatt, ctx)) {
@@ -1255,8 +1265,6 @@ void Background_j_ctx(bool_t write_analyze_output, bool_t equilibria_only, RHCon
 	sca_ai[k]  += scatt[k];
       }
     }
-
-    printf("Background_j_ctx 1214!!!!\n");
 
     /* --- Absorption by H + H^+ (referred to as H2plus free-free) -- */
 
@@ -1267,8 +1275,6 @@ void Background_j_ctx(bool_t write_analyze_output, bool_t equilibria_only, RHCon
       }
     }
 
-    printf("Background_j_ctx 1225!!!!\n");
-
     /* --- Rayleigh scattering and free-free absorption by
            molecular hydrogen --                       -------------- */
 
@@ -1278,16 +1284,12 @@ void Background_j_ctx(bool_t write_analyze_output, bool_t equilibria_only, RHCon
       }
     }
 
-    printf("Background_j_ctx 1236!!!!\n");
-
     if (H2minus_ff_ctx(wavelength, chi, ctx)) {
       for (k = 0;  k < atmosLocal->Nspace;  k++) {
 	chi_ai[k] += chi[k]; 
 	eta_ai[k] += chi[k] * Bnu[k];
       }
     }
-
-    printf("Background_j_ctx 1245!!!!\n");
     /* --- Bound-Free opacities due to ``metals'' --   -------------- */
 
     if (do_fudge) {
@@ -1297,7 +1299,6 @@ void Background_j_ctx(bool_t write_analyze_output, bool_t equilibria_only, RHCon
       metal_fudge = 1.0;
     }
 
-    printf("Background_j_ctx 1255!!!!\n");
     /* --- Note: Hydrogen bound-free opacities are calculated in
            routine Hydrogen_bf --                      -------------- */
 
@@ -1307,7 +1308,6 @@ void Background_j_ctx(bool_t write_analyze_output, bool_t equilibria_only, RHCon
       eta_ai[k] += eta[k] * metal_fudge;
     }
 
-    printf("Background_j_ctx 1265!!!!\n");
     /* --- Add the scattering opacity to the absorption part to store
            the total opacity --                        -------------- */
 
@@ -1322,7 +1322,6 @@ void Background_j_ctx(bool_t write_analyze_output, bool_t equilibria_only, RHCon
       chi_ai[k] += sca_ai[k];
     }
 
-    printf("Background_j_ctx 1280!!!!\n");
     /* --- Now the contributions that may be angle-dependent due to the
            presence of atomic or molecular lines --    -------------- */
 
@@ -1353,11 +1352,8 @@ void Background_j_ctx(bool_t write_analyze_output, bool_t equilibria_only, RHCon
 	  }
           /* --- Add opacity from passive atomic lines (including
                  hydrogen) --                          -------------- */
-    printf("Background_j_ctx 1311!!!!\n");
 	  if (inputLocal->allow_passive_bb) {
-       printf("Background_j_ctx 1313!!!!\n");
 	    backgrflags = passive_bb_ctx(wavelength, nspect, mu, to_obs, chi, eta, chip, ctx);
-       printf("Background_j_ctx 1315!!!!\n");
 	    if (backgrflags.hasline) {
 	      atmosLocal->backgrflags[nspect].hasline = TRUE;
 	      if (backgrflags.ispolarized) {
@@ -1379,8 +1375,6 @@ void Background_j_ctx(bool_t write_analyze_output, bool_t equilibria_only, RHCon
 	  }
           /* --- Add opacity from Kurucz line list --  -------------- */
     
-    printf("Background_j_ctx 1334!!!!\n");
-
           if (atmosLocal->Nrlk > 0) {
 	    backgrflags = rlk_opacity_ctx(wavelength, nspect, mu, to_obs, chi, eta, scatt, chip, ctx);
 	    if (backgrflags.hasline) {

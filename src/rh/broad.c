@@ -148,7 +148,7 @@ void VanderWaals(AtomicLine *line, double *GvdW)
 /* ------- end ---------------------------- VanderWaals.c ----------- */
 
 
-/* ------- begin -------------------------- VanderWaals.c ----------- */
+/* ------- begin -------------------------- VanderWaals_ctx.c ----------- */
 
 void VanderWaals_ctx(AtomicLine *line, double *GvdW, RHContext *ctx)
 {

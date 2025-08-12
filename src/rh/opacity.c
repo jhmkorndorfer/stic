@@ -1114,6 +1114,85 @@ void free_as(int nspect, bool_t crosscoupling)
 }
 /* ------- end ---------------------------- free_as.c --------------- */
 
+
+
+/* ------- begin -------------------------- free_as_ctx.c --------------- */
+
+void free_as_ctx(int nspect, bool_t crosscoupling, RHContext *ctx)
+{
+  register int nact, n, m;
+
+  int i, j, nt;
+  Atom *atom;
+  Molecule *molecule;
+  ActiveSet *as;
+  Atmosphere *atmosLocal = &ctx->atmos;
+  InputData *inputLocal = &ctx->input;
+  Spectrum *spectrumLocal = &ctx->spectrum;
+
+  as = &spectrumLocal->as[nspect];
+  nt = nspect % inputLocal->Nthreads;
+
+  free(as->chi_c);
+  free(as->eta_c);
+  free(as->sca_c);
+
+  free(as->chi);
+  free(as->eta);
+
+  if (inputLocal->StokesMode == FULL_STOKES && inputLocal->magneto_optical) {
+    if (atmosLocal->backgrflags[nspect].ispolarized)
+      free(as->chip_c);
+    if (containsPolarized(as))
+      free(as->chip);
+  }
+
+  for (nact = 0;  nact < atmosLocal->Nactiveatom;  nact++) {
+    atom = atmosLocal->activeatoms[nact];
+
+    if (as->Nactiveatomrt[nact] > 0) {
+      free(atom->rhth[nt].eta);
+
+      freeMatrix((void **) atom->rhth[nt].Vij);
+      freeMatrix((void **) atom->rhth[nt].gij);
+      freeMatrix((void **) atom->rhth[nt].wla);
+
+      if (crosscoupling) {
+	for (m = 0;  m < as->Nlower[nact];  m++) {
+	  i = as->lower_levels[nact][m];
+	  free(atom->rhth[nt].chi_up[i]);
+	  atom->rhth[nt].chi_up[i] = NULL;
+	}
+	free(atom->rhth[nt].chi_up);
+
+	for (m = 0;  m < as->Nupper[nact];  m++) {
+	  j = as->upper_levels[nact][m];
+	  free(atom->rhth[nt].chi_down[j]);
+	  free(atom->rhth[nt].Uji_down[j]);
+
+	  atom->rhth[nt].chi_down[j] = NULL;
+	  atom->rhth[nt].Uji_down[j] = NULL;
+	}
+	free(atom->rhth[nt].chi_down);
+	free(atom->rhth[nt].Uji_down);
+      }
+    }
+  }
+  for (nact = 0;  nact < atmosLocal->Nactivemol;  nact++) {
+    molecule = atmosLocal->activemols[nact];
+    if (as->Nactivemolrt[nact] > 0) {
+      free(molecule->rhth[nt].eta);
+
+      freeMatrix((void **) molecule->rhth[nt].Vij);
+      freeMatrix((void **) molecule->rhth[nt].gij);
+      freeMatrix((void **) molecule->rhth[nt].wla);
+    }
+  }
+}
+/* ------- end ---------------------------- free_as_ctx.c --------------- */
+
+
+
 /* ------- begin -------------------------- containsPolarized.c ----- */
 
 bool_t containsPolarized(ActiveSet *as)

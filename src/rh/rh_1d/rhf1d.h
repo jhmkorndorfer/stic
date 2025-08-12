@@ -93,16 +93,20 @@ extern "C" {
 
   
   
-  void save_populations(RHContext* ctx, crhpop *save_pop, double *ne_lte);
-  void read_populations(RHContext* ctx, crhpop *save_pop, int flag);
-  void readInput_ctx(RHContext *ctx);
-  void clean_saved_populations(RHContext* ctx, crhpop *save_pop_ref);
+  void save_populations(crhpop *save_pop, double *ne_lte);
+  void read_populations(crhpop *save_pop, int flag);
+  void clean_saved_populations(crhpop *save_pop_ref);
   void UpdateAtmosDep(void);
   void Initvarious();
   void calculateRay(void);
 
   // For now here I will add the tentative functions for RHF1D thread safe version...
   // Functions below are in order of appearnce in the rhf1d function from rhf1d.c. This also includes subfunctions, for instance: readMolecularModels_ctx calls readMolecule_ctx and readMolecularLines_ctx etc.
+  void read_populations_ctx(crhpop *save_pop, int flag, RHContext *ctx);
+  void save_populations_ctx(crhpop *save_pop, double *ne_lte, RHContext *ctx);
+  void clean_saved_populations_ctx(crhpop *save_pop, RHContext *ctx);
+  void readInput_ctx(RHContext *ctx);
+
   void DUMMYatmos_ctx(RHContext *ctx);
   void getAngleQuad_ctx(RHContext *ctx);
   void readAbundance_ctx(RHContext *ctx);
@@ -154,6 +158,7 @@ extern "C" {
   flags passive_bb_ctx(double lambda, int nspect, int mu, bool_t to_obs, double *chi, double *eta, double *chip, RHContext *ctx);
   void Damping_ctx(AtomicLine *line, double *adamp, RHContext *ctx);
   double vproject_ctx(int k, int mu, RHContext *ctx);
+  void Bproject_ctx(RHContext *ctx);
   void VanderWaals_ctx(AtomicLine *line, double *GvdW, RHContext *ctx);
   void Stark_ctx(AtomicLine *line, double *GStark, RHContext *ctx);
   void StarkLinear_ctx(AtomicLine *line, double *GStark, RHContext *ctx);
@@ -186,6 +191,7 @@ extern "C" {
   double solveSpectrum_ctx(bool_t eval_operator, bool_t redistribute, int iter, bool_t synth_all, RHContext *ctx);
   void zeroRates_ctx(bool_t redistribute, RHContext *ctx);
   double Formal_ctx(int nspect, bool_t eval_operator, bool_t redistribute, int iter, RHContext *ctx);
+  void free_as_ctx(int nspect, bool_t crosscoupling, RHContext *ctx);
   void alloc_as_ctx(int nspect, bool_t crosscoupling, RHContext *ctx);
   bool_t containsPolarized_ctx(ActiveSet *as, RHContext *ctx);
   bool_t containsBoundBound_ctx(ActiveSet *as, RHContext *ctx);
@@ -209,6 +215,33 @@ extern "C" {
   void writeJlambda_ctx(int nspect, double *J, RHContext *ctx);
   void writeJ20lambda_ctx(int nspect, double *J20, RHContext *ctx);
   void Piecewise_Bezier3_ctx(int nspect, int mu, bool_t to_obs, double *chi, double *S, double *I, double *Psi, RHContext *ctx);
+  void Iterate_j_ctx(int NmaxIter, double iterLimit, double *dpopmax_out, RHContext *ctx);
+  void initGammaMolecule_ctx(Molecule *molecule, RHContext *ctx);
+  double updatePopulations_ctx(int niter, RHContext *ctx);
+  void statEquil_H_ctx(Atom *atom, int isum, int mali_iter, RHContext *ctx);
+  void extractGamma_ctx(Atom *atom, double **G, int k, RHContext *ctx);
+  void CollisionRateOne_ctx(struct Atom *atom, char **fp_atom, int k, RHContext *ctx);
+  void charge_eq_ctx(double **dFF, double *F, double *var, double **w,  double **c, Atom *atom, int k, RHContext *ctx);
+  void getfjk2_ctx(Element *element, double ne, int k, double *fjk, double *dfjk, RHContext *ctx);
+  void statEquilMolecule_ctx(struct Molecule *molecule, int isum, RHContext *ctx);
+  void Redistribute_j_ctx(int NmaxIter, double iterLimit, double iprec, RHContext *ctx);
+  void Hydrostatic_ctx(int NmaxIter, double iterLimit, RHContext *ctx);
+  void FMetals_ctx(double *F, RHContext *ctx);
+  void dFMetals_ctx(double *dFdne, RHContext *ctx);
+  void adjustStokesMode_ctx(RHContext *ctx);
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

@@ -15,7 +15,8 @@
 #include <string.h>
 #include <ctype.h>
 
-#include "rh.h"
+// #include "rh.h"
+#include "rhf1d.h"
 #include "atom.h"
 #include "atmos.h"
 #include "error.h"
@@ -420,6 +421,63 @@ void adjustStokesMode()
   }
 }
 /* ------- end ---------------------------- adjustStokesMode.c ------ */
+
+
+/* ------- begin -------------------------- adjustStokesMode_ctx.c ------ */
+
+void adjustStokesMode_ctx(RHContext *ctx)
+{
+  register int kr, nact;
+  Atmosphere *atmosLocal = &ctx->atmos;
+  InputData *inputLocal = &ctx->input;
+
+  enum StokesMode oldMode = inputLocal->StokesMode;
+  Atom  *atom;
+  AtomicLine *line;
+
+  /* --- Reset Stokes mode so that the full Stokes equations are
+         solved in case of inputLocal->StokesMode == FIELD_FREE, or
+         inputLocal->StokesMode == POLARIZATION_FREE. --    -------------- */
+
+  if (atmosLocal->Nactiveatom == 0 || atmosLocal->Stokes == FALSE ||
+      inputLocal->StokesMode == NO_STOKES ||
+      inputLocal->StokesMode == FULL_STOKES) return;
+  else
+    inputLocal->StokesMode = FULL_STOKES;
+
+  if (oldMode == FIELD_FREE) {
+    getCPU(2, TIME_START, NULL);
+
+    for (nact = 0;  nact < atmosLocal->Nactiveatom;  nact++) {
+      atom = atmosLocal->activeatoms[nact];
+
+      /* --- Recalculate the profiles of polarized lines in this case */
+
+      for (kr = 0;  kr < atom->Nline;  kr++) {
+	line = &atom->line[kr];
+	if (line->polarizable) {
+
+	  /* --- First free up the space used in field-free
+                 calculation --                        -------------- */
+	  
+	  if (!inputLocal->limit_memory){
+	    freeMatrix((void **) line->phi);
+	    line->phi = NULL;
+	  }
+	  if(line->wphi){
+	    free(line->wphi);
+	    line->wphi = NULL;
+	  }
+	  
+	  Profile_ctx(line, ctx);
+	}
+      }
+    }
+    getCPU(2, TIME_POLL, "adjustStokesMode");
+  }
+}
+/* ------- end ---------------------------- adjustStokesMode_ctx.c ------ */
+
 
 /* ------- begin -------------------------- freeZeeman.c ------------ */
 

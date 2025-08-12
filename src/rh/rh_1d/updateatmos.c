@@ -383,7 +383,7 @@ void UpdateAtmosDep_ctx(RHContext *ctx) {
       freeMatrix((void **) atmosLocal->sin_2chi);
       atmosLocal->sin_2chi = NULL;
     }
-    Bproject();
+    Bproject_ctx(ctx);
   }
   
   /* Update atmos-dependent atomic  quantities --- --------------- */
@@ -597,7 +597,7 @@ void UpdateAtmosDep_ctx(RHContext *ctx) {
       /* Allocate Gamma, as iterate released the memory */
       molecule->Gamma = matrix_double(SQ(molecule->Nv), atmosLocal->Nspace);
       
-      LTEmolecule_ctx(ctx, molecule);
+      LTEmolecule_ctx(molecule, ctx);
 
       /* Free CO collision rate array, will be reallocated in initSolution_p */
       if (strstr(molecule->ID, "CO")) {

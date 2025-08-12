@@ -8,7 +8,8 @@
 
 #include <stdlib.h>
 
-#include "rh.h"
+// #include "rh.h"
+#include "rhf1d.h"
 #include "atom.h"
 #include "atmos.h"
 #include "background.h"
@@ -66,6 +67,55 @@ void FMetals(double *F)
 }
 /* ------- end ---------------------------- neMetals.c -------------- */
 
+
+
+void FMetals_ctx(double *F, RHContext *ctx)
+{
+  /* --- Calculates the effective ionization fraction F_met for all
+         background metals (i.e. excluding hydrogen) under the
+         assumption of fixed temperature and total electron density.
+         i.e. F_met = F_met(T, ne)
+
+         ne_metal = nHtot * Sum_n (A_n Sum_l (l * f_nl)) = nHtot * F_met
+
+   Note: Populations of background metals may be either LTE or NonLTE!
+         --                                            -------------- */
+
+  register int k, i, n;
+  Atmosphere *atmosLocal = &ctx->atmos;
+
+  double *f_n;
+  Atom *metal;
+
+  f_n = (double *) malloc(atmosLocal->Nspace * sizeof(double));
+  for (k = 0;  k < atmosLocal->Nspace;  k++)  F[k] = 0.0;
+
+  for (n = 1;  n < atmosLocal->Natom;  n++) {
+    metal = &atmosLocal->atoms[n];
+    for (k = 0;  k < atmosLocal->Nspace;  k++) f_n[k] = 0.0;
+
+    for (i = 0;  i < metal->Nlevel;  i++) {
+      if (metal->stage[i] > 0) {
+	for (k = 0;  k < atmosLocal->Nspace;  k++)
+	  f_n[k] += metal->stage[i] * metal->n[i][k];
+      }
+    }
+
+    for (k = 0;  k < atmosLocal->Nspace;  k++)
+      F[k] += metal->abundance * f_n[k] / metal->ntotal[k];
+  }
+
+  free(f_n);
+}
+
+
+
+
+
+
+
+
+
 /* ------- begin -------------------------- dFMetals.c -------------- */
 
 void dFMetals(double *dFdne)
@@ -116,6 +166,64 @@ void dFMetals(double *dFdne)
 
   for (n = 1;  n < atmos.Natom;  n++)
     LTEpops(&atmos.atoms[n], Debeye=TRUE);
+
+  free(neold);  free(Fmin);  free(Fplus);
+}
+
+
+
+
+
+
+void dFMetals_ctx(double *dFdne, RHContext *ctx)
+{
+  register int n, k;
+
+  bool_t Debeye;
+  double *neold, *Fmin, *Fplus;
+  Atmosphere *atmosLocal = &ctx->atmos;
+
+  /* --- Numerically evaluate the derivative dF/dne -- -------------- */
+
+  neold = (double *) malloc(atmosLocal->Nspace * sizeof(double));
+  Fmin  = (double *) malloc(atmosLocal->Nspace * sizeof(double));
+  Fplus = (double *) malloc(atmosLocal->Nspace * sizeof(double));
+
+  /* --- Store electron densities, evaluate LTE populations for reduced
+         electron density --                           -------------- */
+
+  for (k = 0;  k < atmosLocal->Nspace;  k++) {
+    neold[k] = atmosLocal->ne[k];
+    atmosLocal->ne[k] = (1.0 - NEFRACTION) * neold[k];
+  }
+  for (n = 1;  n < atmosLocal->Natom;  n++)
+    LTEpops_ctx(&atmosLocal->atoms[n], Debeye=TRUE, ctx);
+
+  /* --- Get reduced ionization fraction F --          -------------- */
+
+  FMetals_ctx(Fmin, ctx);
+
+  /* --- evaluate LTE populations for enhanced electron density -- -- */
+
+  for (k = 0;  k < atmosLocal->Nspace;  k++)
+    atmosLocal->ne[k] = (1.0 + NEFRACTION) * neold[k];
+  for (n = 1;  n < atmosLocal->Natom;  n++)
+    LTEpops_ctx(&atmosLocal->atoms[n], Debeye=TRUE, ctx);
+
+  /* --- Get enhanced ionization fraction F --         -------------- */
+
+  FMetals_ctx(Fplus, ctx);
+
+  /* --- get the numerical derivative, restore electron densities - - */
+
+  for (k = 0;  k < atmosLocal->Nspace;  k++) {
+    dFdne[k] = (Fplus[k] - Fmin[k]) / (2.0 * NEFRACTION * neold[k]);
+    atmosLocal->ne[k] = neold[k];
+  }
+  /* --- Restore the LTE populations --                 ------------- */
+
+  for (n = 1;  n < atmosLocal->Natom;  n++)
+    LTEpops_ctx(&atmosLocal->atoms[n], Debeye=TRUE, ctx);
 
   free(neold);  free(Fmin);  free(Fplus);
 }

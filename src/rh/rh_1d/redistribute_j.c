@@ -120,6 +120,94 @@ void Redistribute_j(int NmaxIter, double iterLimit, double iprec)
 }
 /* ------- end ---------------------------- Redistribute.c ---------- */
 
+/* ------- begin -------------------------- Redistribute_j_ctx.c ---------- */
+
+void Redistribute_j_ctx(int NmaxIter, double iterLimit, double iprec, RHContext *ctx)
+{
+  const char routineName[] = "Redistribute_j_ctx";
+  register int kr, nact;
+  Atmosphere *atmosLocal = &ctx->atmos;
+  InputData *inputLocal = &ctx->input;
+
+  bool_t  quiet, accel, eval_operator, redistribute;
+  enum    Interpolation representation;
+  int     niter, Nlamu;
+  double  drho, drhomax, drhomaxa;
+  Atom *atom;
+  AtomicLine *line;
+
+  for (nact = 0;  nact < atmosLocal->Nactiveatom;  nact++) {
+    atom = atmosLocal->activeatoms[nact];
+    
+    /* --- Initialize structures for Ng acceleration PRD iteration -- */
+
+    for (kr = 0;  kr < atom->Nline;  kr++) {
+      line = &atom->line[kr];
+      if (line->PRD && line->Ng_prd == NULL) {
+	if (inputLocal->PRD_angle_dep == PRD_ANGLE_DEP)
+	  Nlamu = 2*atmosLocal->Nrays * line->Nlambda * atmosLocal->Nspace;
+	else
+	  Nlamu = line->Nlambda*atmosLocal->Nspace;
+	
+	line->Ng_prd = NgInit(Nlamu, inputLocal->PRD_Ngdelay,
+			      inputLocal->PRD_Ngorder, inputLocal->PRD_Ngperiod,
+			      line->rho_prd[0]);
+      }
+    }
+  }
+  /* --- Iterate over scattering integral while keeping populations
+         fixed --                                      -------------- */
+
+  niter = 1;
+  while (niter <= NmaxIter) {
+
+    drhomaxa = 0.0;
+    for (nact = 0;  nact < atmosLocal->Nactiveatom;  nact++) {
+      atom = atmosLocal->activeatoms[nact];
+      
+      drhomax = 0.0;
+      for (kr = 0;  kr < atom->Nline;  kr++) {
+	line = &atom->line[kr];
+	if (line->PRD) {
+	   switch (inputLocal->PRD_angle_dep) {
+	  case PRD_ANGLE_INDEP:
+	    PRDScatter_ctx(line, representation=LINEAR, ctx);
+	    break;
+
+	  case PRD_ANGLE_APPROX:
+	    PRDAngleApproxScatter_ctx(line, representation=LINEAR, ctx);
+	    break;
+	    
+	  case PRD_ANGLE_DEP:
+	    PRDAngleScatter_ctx(line, representation=LINEAR, ctx);
+	    break;
+	  }
+
+	  accel = Accelerate(line->Ng_prd, line->rho_prd[0]);
+	  sprintf(messageStr, "  PRD: iter #%d, atom %s, line %d,",
+		  line->Ng_prd->count-1, atom->ID, kr);
+	  drho = MaxChange_j(line->Ng_prd, messageStr, quiet=commandline.quiet);
+	  if (mpi.stop) return; /* Get out if singular matrix, or NAN in dmax */
+	  sprintf(messageStr, (accel) ? " (accelerated)\n" : "\n");
+	  Error(MESSAGE, routineName, messageStr);
+
+	  drhomax = MAX(drho, drhomax);
+	}
+	drhomaxa = MAX(drhomax, drhomaxa);
+      }
+    }
+
+    /* --- Solve transfer equation with fixed populations -- -------- */
+
+    solveSpectrum_ctx(eval_operator=FALSE, redistribute=TRUE, 0, FALSE, ctx);
+
+    if (((drhomaxa < iterLimit) || (drhomaxa < iprec)) && (niter >= 2)) break;
+    niter++;
+  }
+}
+/* ------- end ---------------------------- Redistribute_j_ctx.c ---------- */
+
+
 /* ------- begin -------------------------- MaxChange_j.c ------------- */
 
 double MaxChange_j(struct Ng *Ngs, char *text, bool_t quiet)

@@ -1563,7 +1563,6 @@ void readAtomicModels_ctx(RHContext *ctx)
     }
   }
 
-  printf("IIII STILL ALIVEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE\n");
   fclose(fp_atoms);   
 
   /* --- Create an alias to the hydrogen atom structure -- ---------- */

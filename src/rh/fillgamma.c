@@ -94,6 +94,30 @@ void initGammaMolecule(Molecule *molecule)
 }
 /* ------- end ---------------------------- initGammaMolecule.c ----- */
 
+/* ------- begin -------------------------- initGammaMolecule.c ----- */
+
+void initGammaMolecule_ctx(Molecule *molecule, RHContext *ctx)
+{
+  register int ij, ji, k, vi, vj;
+  Atmosphere *atmosLocal = &ctx->atmos;
+
+  /* --- Add the fixed rates into Gamma --             -------------- */
+
+  for (vi = 0;  vi < molecule->Nv-1;  vi++) {
+    vj = vi + 1;
+    ij = vi*molecule->Nv + vj;
+    ji = vj*molecule->Nv + vi;
+    for (k = 0;  k < atmosLocal->Nspace;  k++) {
+      if (molecule->n[k]) {
+	molecule->Gamma[ij][k] = molecule->C_ul[k];
+	molecule->Gamma[ji][k] = molecule->C_ul[k] *
+	  molecule->nvstar[vj][k] / molecule->nvstar[vi][k];
+      }
+    }
+  }
+}
+/* ------- end ---------------------------- initGammaMolecule_ctx.c ----- */
+
 /* ------- begin -------------------------- addtoGamma.c ------------ */
 
 void addtoGamma(int nspect, double wmu, double *I, double *Psi)
