@@ -1,6 +1,17 @@
 # Daily Progress Log
 
-## Date: ***12/08/2025***
+## Date: ***25/09/2025***
+
+### Notes
+Long time without noting anything here... Lets get back to trying to remove phanthom threads from STiC.
+Lets trace it again with the following configs:
+export SCOREP_FILTERING_FILE=./filter-based-on-cube.fltr
+export SCOREP_ENABLE_TRACING=true
+export SCOREP_TOTAL_MEMORY=8G
+export SCOREP_EXPERIMENT_DIRECTORY=./testing-stic-threads
+export SCOREP_ENABLE_UNWINDING=true
+mpiexec -n 26 ../src/stic
+
 
 ### Accomplishments (including missing notes)
 - Currently refactoring rhf1d to try to make it threadsafe...
